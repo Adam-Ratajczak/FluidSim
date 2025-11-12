@@ -2,8 +2,7 @@ import pygame
 import sys
 import math as m
 import numpy as np
-import scipy.sparse.linalg as splinalg
-from scipy import interpolate
+import scipy.ndimage as sim
 
 CONTROLS = [
     {
@@ -443,13 +442,33 @@ def initialize_state(state_type):
     SOLID[[0, -1], :] = True
     SOLID[:, [0, -1]] = True
 
+COLOR_STOPS = {
+    0.00: (0,   0,   139),   # dark blue
+    0.25: (0,  255,   0),    # green
+    0.50: (255, 255, 0),     # yellow
+    0.75: (255, 165, 0),     # orange
+    1.00: (255,   0, 0),     # red
+}
 def get_pressure_color(val):
-    val = max(0.0, min(val, 1.0))
-    red = int(val * 255)
-    green = 0
-    blue = int((1 - val) * 255)
+    val = clamp(val, 0.0, 1.0)
 
-    return (red, green, blue)
+    keys = sorted(COLOR_STOPS.keys())
+
+    for i in range(len(keys) - 1):
+        k1 = keys[i]
+        k2 = keys[i + 1]
+
+        if k1 <= val <= k2:
+            t = (val - k1) / (k2 - k1)
+
+            c1 = COLOR_STOPS[k1]
+            c2 = COLOR_STOPS[k2]
+
+            r = int(lerp(c1[0], c2[0], t))
+            g = int(lerp(c1[1], c2[1], t))
+            b = int(lerp(c1[2], c2[2], t))
+
+            return (r, g, b)
 
 
 def draw_arrow(screen, start_pos, direction, color, length=50, arrow_head_size=10, arrow_shaft_size=3):
@@ -478,9 +497,14 @@ def draw_arrow(screen, start_pos, direction, color, length=50, arrow_head_size=1
     points = [tuple(map(int, p)) for p in [end_pos, left_arrow, right_arrow]]
     pygame.draw.polygon(screen, color, points)
 
-def render_scene(screen, font, xpos, ypos, width, height):
-    pressure_max = 10.0
-    velocity_max = 10.0
+def get_pressure_at_world_pos(worldPos):
+    return sample_bilinear(P, FIELD_WIDTH, FIELD_HEIGHT, worldPos)
+
+def render_scene(screen, xpos, ypos):
+    pressure_min = +1e9
+    pressure_max = -1e9
+
+    velocity_max = 0.0
     for x in range(0, FIELD_WIDTH):
         for y in range(0, FIELD_HEIGHT):
             # pressure_max = max(pressure_max, P[x, y])
@@ -488,23 +512,34 @@ def render_scene(screen, font, xpos, ypos, width, height):
             velocity = (U[x, y], V[x, y])
             velocity_mag = m.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1])
             velocity_max = max(velocity_max, velocity_mag)
+            
+            p = get_pressure(x, y)
+            pressure_min = min(pressure_min, p)
+            pressure_max = max(pressure_max, p)
+    
+    smooth_P = sim.zoom(P, zoom=CELL_SIZE, order=1)    
+    for px in range(smooth_P.shape[0]):
+        for py in range(smooth_P.shape[1]):
+            if pressure_max == pressure_min:
+                val = 0
+            else:
+                p = smooth_P[px, py]
+                val = (p - pressure_min) / (pressure_max - pressure_min)
+            
+            color = get_pressure_color(val)
+            screen.set_at((px + xpos, py + ypos), color)
+            
+    for x in range(0, FIELD_WIDTH):
+        for y in range(0, FIELD_HEIGHT):
+            if is_solid(x, y):
+                pixel_rect = pygame.Rect(xpos + x * CELL_SIZE, ypos + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
     
     arrow_max_len = 5
     arrow_head = 5
     arrow_shaft = 3
     arrow_color = (0, 0, 0)
     arrow_freq = 5
-    
-    for x in range(0, FIELD_WIDTH):
-        for y in range(0, FIELD_HEIGHT):
-            pixel_rect = pygame.Rect(xpos + x * CELL_SIZE, ypos + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-            if is_solid(x, y):
-                pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
-                continue
-            
-            color = get_pressure_color(0.0) if pressure_max == 0 else get_pressure_color(P[x, y] / pressure_max)
-            pygame.draw.rect(screen, color, pixel_rect)
-            
     for x in range(arrow_freq // 2, FIELD_WIDTH, arrow_freq):
         for y in range(arrow_freq // 2, FIELD_HEIGHT, arrow_freq):
                 velocity = (U[x, y], V[x, y])
@@ -628,7 +663,7 @@ def clamp(x, a, b):
     Returns:
         Clamped x value
     """
-    return max(min(x, a), b)
+    return min(max(x, a), b)
 
 def lerp(a, b, t):
     """
@@ -659,11 +694,11 @@ def sample_bilinear(eV, eCX, eCY, worldPos):
     width = (eCX - 1) * CELL_SIZE
     height = (eCY - 1) * CELL_SIZE
     
-    px = (worldPos[0] + width / 2) / CELL_SIZE
-    py = (worldPos[1] + height / 2) / CELL_SIZE
+    px = (worldPos[0] + width // 2) // CELL_SIZE
+    py = (worldPos[1] + height // 2) // CELL_SIZE
     
-    left = clamp(px, 0, eCX - 2)
-    bottom = clamp(py, 0, eCY - 2)
+    left = int(clamp(px, 0, eCX - 2))
+    bottom = int(clamp(py, 0, eCY - 2))
     right = left + 1
     top = bottom + 1
     
@@ -956,7 +991,7 @@ def main():
         bg_rect = pygame.Rect(0, 0, WIDTH - PANEL_WIDTH, HEIGHT)
         pygame.draw.rect(screen, COLORISTICS["BG_COLOR"], bg_rect)
     
-        render_scene(screen, font, (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2, (HEIGHT - SIM_SIZE) // 2, SIM_SIZE, SIM_SIZE)
+        render_scene(screen, (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2, (HEIGHT - SIM_SIZE) // 2)
         render_gui(screen, font, WIDTH - PANEL_WIDTH, 0, PANEL_WIDTH, HEIGHT)
 
         pygame.display.flip()
