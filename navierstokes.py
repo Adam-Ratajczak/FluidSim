@@ -497,10 +497,35 @@ def draw_arrow(screen, start_pos, direction, color, length=50, arrow_head_size=1
     points = [tuple(map(int, p)) for p in [end_pos, left_arrow, right_arrow]]
     pygame.draw.polygon(screen, color, points)
 
-def get_pressure_at_world_pos(worldPos):
-    return sample_bilinear(P, FIELD_WIDTH, FIELD_HEIGHT, worldPos)
+def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure_max, ticks):
+    vals = np.linspace(0.0, 1.0, height)
 
-def render_scene(screen, xpos, ypos):
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    for i, v in enumerate(vals):
+        color = get_pressure_color(v)
+
+        img[i, :, :] = color
+
+    surf = pygame.surfarray.make_surface(np.rot90(img, 3))
+    screen.blit(surf, (xpos, ypos))
+
+    pygame.draw.rect(screen, (0, 0, 0), (xpos, ypos, width, height), 3)
+
+    for i in range(ticks):
+        t = i / (ticks - 1)
+        py = int(ypos + (1.0 - t) * height)
+        if i == 0:
+            py -= 2
+
+        pygame.draw.line(screen, (0, 0, 0),
+                         (xpos + width, py),
+                         (xpos + width + 6, py), 2)
+
+        pval = pressure_min + t * (pressure_max - pressure_min)
+        text = font.render(f"{pval:.2f}", True, (0, 0, 0))
+        screen.blit(text, (xpos + width + 10, py - text.get_height()//2))
+
+def render_scene(screen, font, xpos, ypos):
     pressure_min = +1e9
     pressure_max = -1e9
 
@@ -546,7 +571,13 @@ def render_scene(screen, xpos, ypos):
                 velocity_mag = m.sqrt((velocity[0] * CELL_SIZE) ** 2 + (velocity[1] * CELL_SIZE) ** 2)
                 if velocity_max != 0:
                     draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * velocity_mag / velocity_max, arrow_head, arrow_shaft)
+                    
+    render_scale(screen, font, xpos + FIELD_WIDTH * CELL_SIZE + 50, ypos, 30, FIELD_HEIGHT * CELL_SIZE, pressure_min, pressure_max, 7)
                 
+def render_info(screen, font, xpos, ypos):
+    text = font.render(f"Time elapsed: {T:.2f} s", True, (0, 0, 0))
+    screen.blit(text, (xpos, ypos))
+
 DEFAULT_METHOD = 0
 def on_change_method_presets(index):
     global DEFAULT_METHOD
@@ -991,8 +1022,9 @@ def main():
         bg_rect = pygame.Rect(0, 0, WIDTH - PANEL_WIDTH, HEIGHT)
         pygame.draw.rect(screen, COLORISTICS["BG_COLOR"], bg_rect)
     
-        render_scene(screen, (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2, (HEIGHT - SIM_SIZE) // 2)
+        render_scene(screen, font, (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2, (HEIGHT - SIM_SIZE) // 2)
         render_gui(screen, font, WIDTH - PANEL_WIDTH, 0, PANEL_WIDTH, HEIGHT)
+        render_info(screen, font, 10, 10)
 
         pygame.display.flip()
         clock.tick(60)
