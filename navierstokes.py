@@ -356,6 +356,7 @@ def on_change_state_presets(index):
         initialize_state("checkerboard")
 
 RUNNING = False
+CONVERGED = False
 def on_start(control, mouse_x, mouse_y):
     get_control("Model preset")["Enabled"] = False
     get_control("State preset")["Enabled"] = False
@@ -367,8 +368,9 @@ def on_start(control, mouse_x, mouse_y):
     
     collapse_all_comboboxes()
     
-    global RUNNING
+    global RUNNING, CONVERGED
     RUNNING = True
+    CONVERGED = False
 
 def on_pause(control, mouse_x, mouse_y):
     get_control("Model preset")["Enabled"] = False
@@ -386,7 +388,7 @@ def on_pause(control, mouse_x, mouse_y):
 
 T = 0.0
 def on_reset(control, mouse_x, mouse_y):
-    global RUNNING, T
+    global RUNNING, T, CONVERGED
     RUNNING = False
     T = 0
     
@@ -401,6 +403,8 @@ def on_reset(control, mouse_x, mouse_y):
     collapse_all_comboboxes()
     
     on_change_state_presets(get_control("State preset")["Value"])
+    
+    CONVERGED = False
     
 
 U = np.array([])
@@ -421,11 +425,6 @@ def initialize_state(state_type):
     cx = FIELD_WIDTH / 2
     cy = FIELD_HEIGHT / 2
     scale = max(FIELD_WIDTH, FIELD_HEIGHT)
-
-    def radial(x, y):
-        dx = x - cx
-        dy = y - cy
-        return m.sqrt(dx * dx + dy * dy)
 
     if state_type == "stagnant":
         P.fill(0.0)
@@ -601,6 +600,10 @@ def render_scene(screen, font, xpos, ypos):
 def render_info(screen, font, xpos, ypos):
     text = font.render(f"Time elapsed: {T:.2f} s", True, (0, 0, 0))
     screen.blit(text, (xpos, ypos))
+    
+    if CONVERGED:
+        text = font.render("Converged!", True, (0, 0, 0))
+        screen.blit(text, (xpos, ypos + 30))
 
 DEFAULT_METHOD = 0
 def on_change_method_presets(index):
@@ -983,6 +986,22 @@ def pressure_poisson_solve(P):
 
     return new_p.reshape(P.shape)
         
+def converged(eps):
+    """
+    Description:
+        This function checkes whether simulation converged.\n
+    Arguments:
+        eps - epsilon
+    Returns:
+        True if converged, false otherwise
+    """
+    for x in range(FIELD_WIDTH):
+        for y in range(FIELD_HEIGHT):
+            divergence = calculate_velocity_divergence_at_cell(x, y)
+            if divergence > eps:
+                return False
+    return True
+
 def project_velocities(U, V, rho, dt):
     """
     Description:
@@ -1036,7 +1055,7 @@ def step_implicit_diffusion_method():
         7. Advance time by a time step
     """
     
-    global U, V, P, T
+    global U, V, P, T, CONVERGED
     
     mu = get_control("Viscosity")["Value"] / 1000.0
     rho = get_control("Density")["Value"]
@@ -1055,7 +1074,11 @@ def step_implicit_diffusion_method():
     U = apply_boundary(U)
     V = apply_boundary(V)
     P = apply_boundary(P)
-        
+    
+    if converged(1e-12):
+        on_pause(None, None, None)
+        CONVERGED = True
+    
     T = T + dt
 
 def step_simulation():
