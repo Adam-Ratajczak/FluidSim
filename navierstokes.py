@@ -22,7 +22,7 @@ CONTROLS = [
         "Enabled" : True,
         "Visible" : True,
         "Type" : "Combobox",
-        "Value" : 1,
+        "Value" : 0,
         "Items" : [
             "stagnant",
             "swirl",
@@ -88,6 +88,17 @@ CONTROLS = [
         "Value" : 0.1,
         "Min" : 0.1,
         "Max" : 1,
+    },
+    {
+        "Title" : "Rendering Method",
+        "Enabled" : True,
+        "Visible" : True,
+        "Type" : "Combobox",
+        "Value" : 0,
+        "Items" : [
+            "Pressure",
+            "Gas density",
+        ]
     },
     {
         
@@ -410,17 +421,19 @@ def on_reset(control, mouse_x, mouse_y):
 U = np.array([])
 V = np.array([])
 P = np.array([])
+D = np.array([])
 SOLID = np.array([])
 FIELD_WIDTH = 0
 FIELD_HEIGHT = 0
 CELL_SIZE = 0
 def initialize_state(state_type):
-    global U, V, P, SOLID
+    global U, V, P, D, SOLID
 
     U = np.zeros((FIELD_WIDTH + 1, FIELD_HEIGHT), dtype=float)
     V = np.zeros((FIELD_WIDTH, FIELD_HEIGHT + 1), dtype=float)
     P = np.zeros((FIELD_WIDTH, FIELD_HEIGHT), dtype=float)
     SOLID = np.zeros((FIELD_WIDTH, FIELD_HEIGHT), dtype=bool)
+    D = np.zeros((FIELD_WIDTH, FIELD_HEIGHT, 3), dtype=float)
 
     cx = (FIELD_WIDTH) * 0.5
     cy = (FIELD_HEIGHT) * 0.5
@@ -564,7 +577,17 @@ def initialize_state(state_type):
                 U[x,y] = np.sign(dx) * (-dy) * 0.15
                 V[x,y] = np.sign(dy) * (dx) * 0.15
     P.fill(0.0)
-
+    
+    velocity_max = get_max_vel()
+    for x in range(FIELD_WIDTH):
+        for y in range(FIELD_HEIGHT):
+            velocity = (U[x, y], V[x, y])
+            velocity_mag = m.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1])
+            if velocity_max != 0:
+                D[x, y] = (velocity_mag / velocity_max * 255.0, 0, 0)
+            else:
+                D[x, y] = (0, 0, 0)
+    
     SOLID[:, :] = False
     SOLID[0, :] = True
     SOLID[-1, :] = True
@@ -631,6 +654,20 @@ def draw_arrow(screen, start_pos, direction, color, length=50, arrow_head_size=1
     points = [tuple(map(int, p)) for p in [end_pos, left_arrow, right_arrow]]
     pygame.draw.polygon(screen, color, points)
 
+def render_arrow_field(screen, xpos, ypos, arrow_color):
+    arrow_max_len = 5
+    arrow_head = 5
+    arrow_shaft = 3
+    arrow_freq = 5
+
+    velocity_max = get_max_vel()
+    for x in range(arrow_freq // 2, FIELD_WIDTH, arrow_freq):
+        for y in range(arrow_freq // 2, FIELD_HEIGHT, arrow_freq):
+                velocity = (U[x, y], V[x, y])
+                velocity_mag = m.sqrt((velocity[0] * CELL_SIZE) ** 2 + (velocity[1] * CELL_SIZE) ** 2)
+                if velocity_max >= 1e-12:
+                    draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * velocity_mag / velocity_max, arrow_head, arrow_shaft)
+
 def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure_max, ticks):
     vals = np.linspace(0.0, 1.0, height)
 
@@ -659,17 +696,21 @@ def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure
         text = font.render(f"{pval:.2E}", True, (0, 0, 0))
         screen.blit(text, (xpos + width + 10, py - text.get_height()//2))
 
-def render_scene(screen, font, xpos, ypos):
-    pressure_min = +1e9
-    pressure_max = -1e9
-
+def get_max_vel():
     velocity_max = 0.0
     for x in range(0, FIELD_WIDTH):
         for y in range(0, FIELD_HEIGHT):
             velocity = (U[x, y], V[x, y])
             velocity_mag = m.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1])
             velocity_max = max(velocity_max, velocity_mag)
-            
+    
+    return velocity_max
+
+def render_pressure(screen, font, xpos, ypos):
+    pressure_min = +1e9
+    pressure_max = -1e9
+    for x in range(0, FIELD_WIDTH):
+        for y in range(0, FIELD_HEIGHT):
             p = get_pressure(x, y)
             pressure_min = min(pressure_min, p)
             pressure_max = max(pressure_max, p)
@@ -691,20 +732,41 @@ def render_scene(screen, font, xpos, ypos):
             if is_solid(x, y):
                 pixel_rect = pygame.Rect(xpos + x * CELL_SIZE, ypos + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                 pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
-    
-    arrow_max_len = 5
-    arrow_head = 5
-    arrow_shaft = 3
-    arrow_color = (0, 0, 0)
-    arrow_freq = 5
-    for x in range(arrow_freq // 2, FIELD_WIDTH, arrow_freq):
-        for y in range(arrow_freq // 2, FIELD_HEIGHT, arrow_freq):
-                velocity = (U[x, y], V[x, y])
-                velocity_mag = m.sqrt((velocity[0] * CELL_SIZE) ** 2 + (velocity[1] * CELL_SIZE) ** 2)
-                if velocity_max != 0:
-                    draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * velocity_mag / velocity_max, arrow_head, arrow_shaft)
                     
+    render_arrow_field(screen, xpos, ypos, (0, 0, 0))
     render_scale(screen, font, xpos + FIELD_WIDTH * CELL_SIZE + 50, ypos, 30, FIELD_HEIGHT * CELL_SIZE, pressure_min, pressure_max, 7)
+
+def render_smoke(screen, xpos, ypos):
+    smooth = np.zeros((FIELD_WIDTH * CELL_SIZE,
+                       FIELD_HEIGHT * CELL_SIZE,
+                       3), dtype=np.uint8)
+
+    for c in range(3):
+        smooth[:, :, c] = sim.zoom(D[:, :, c],
+                                   zoom=CELL_SIZE,
+                                   order=1)
+    
+    surf = pygame.surfarray.make_surface(smooth)
+    screen.blit(surf, (xpos, ypos))
+
+    for x in range(FIELD_WIDTH):
+        for y in range(FIELD_HEIGHT):
+            if is_solid(x, y):
+                pygame.draw.rect(screen,
+                                 (0, 0, 0),
+                                 (xpos + x*CELL_SIZE,
+                                  ypos + y*CELL_SIZE,
+                                  CELL_SIZE,
+                                  CELL_SIZE))
+
+    render_arrow_field(screen, xpos, ypos, (220, 220, 220))
+
+
+def render_scene(screen, font, xpos, ypos):
+    if RENDERING_METHOD == 0:
+        render_pressure(screen, font, xpos, ypos)
+    elif RENDERING_METHOD == 1:
+        render_smoke(screen, xpos, ypos)
                 
 def render_info(screen, font, xpos, ypos):
     text = font.render(f"Time elapsed: {T:.2f} s", True, (0, 0, 0))
@@ -718,6 +780,11 @@ DEFAULT_METHOD = 0
 def on_change_method_presets(index):
     global DEFAULT_METHOD
     DEFAULT_METHOD = index
+    
+RENDERING_METHOD = 0
+def on_change_rendering_method_presets(index):
+    global RENDERING_METHOD
+    RENDERING_METHOD = index
 
 def calculate_velocity_divergence_at_cell(x, y):
     """
@@ -873,7 +940,7 @@ def diffuse_velocity(U, V, nu, dt):
 
     return U, V
 
-def clamp(x, a, b):
+def clamp(x, lo, hi):
     """
     Description:
         This function is used to clamp x argument in a range [a, b].\n
@@ -883,7 +950,7 @@ def clamp(x, a, b):
     Returns:
         Clamped x value
     """
-    return min(max(x, a), b)
+    return lo if x < lo else hi if x > hi else x
 
 def lerp(a, b, t):
     """
@@ -915,21 +982,26 @@ def sample_bilinear(eV, eCX, eCY, worldPos):
     
     width = (eCX - 1) * CELL_SIZE
     height = (eCY - 1) * CELL_SIZE
-    
-    px = (worldPos[0] + width // 2) // CELL_SIZE
-    py = (worldPos[1] + height // 2) // CELL_SIZE
-    
-    left = int(clamp(px, 0, eCX - 2))
-    bottom = int(clamp(py, 0, eCY - 2))
-    right = left + 1
-    top = bottom + 1
-    
-    xFrac = clamp(px - left, 0, 1)
-    yFrac = clamp(py - bottom, 0, 1)
-    
-    vT = lerp(eV[left, top], eV[right, top], xFrac)
-    vB = lerp(eV[left, bottom], eV[right, bottom], xFrac)
-    
+
+    # Convert world coords -> grid coords (float)
+    # This maps x = 0 at leftmost sample and x = eCX-1 at rightmost.
+    px = (worldPos[0] + width  / 2.0) / CELL_SIZE
+    py = (worldPos[1] + height / 2.0) / CELL_SIZE
+
+    # Find integer cell indices
+    left   = int(m.floor(clamp(px, 0.0, eCX - 2.0)))
+    bottom = int(m.floor(clamp(py, 0.0, eCY - 2.0)))
+    right  = left + 1
+    top    = bottom + 1
+
+    # Fractional part inside the cell
+    xFrac = clamp(px - left,   0.0, 1.0)
+    yFrac = clamp(py - bottom, 0.0, 1.0)
+
+    # Do bilinear interpolation
+    vT = lerp(eV[left,  top],    eV[right, top],    xFrac)
+    vB = lerp(eV[left,  bottom], eV[right, bottom], xFrac)
+
     return lerp(vB, vT, yFrac)
 
 def get_vel_at_world_pos(worldPos):
@@ -947,7 +1019,7 @@ def get_vel_at_world_pos(worldPos):
     
     return (velX, velY)
 
-def advect(U, V, dt):
+def advect(U, V, D, dt):
     """
     Description:
         This function is used for moving velocities forward in the field using semi-Lagrangian method.\n
@@ -964,6 +1036,7 @@ def advect(U, V, dt):
     
     newU = U.copy()
     newV = V.copy()
+    newD = D.copy()
 
     for x in range(FIELD_WIDTH + 1):
         for y in range(FIELD_HEIGHT):
@@ -999,7 +1072,25 @@ def advect(U, V, dt):
 
             newV[x][y] = sample_bilinear(V, FIELD_WIDTH, FIELD_HEIGHT+1, back)
 
-    return newU, newV
+    for x in range(FIELD_WIDTH):
+        for y in range(FIELD_HEIGHT):
+
+            if is_solid(x, y):
+                newD[x][y][:] = 0.0
+                continue
+
+            wx = (x + 0.5 - FIELD_WIDTH  / 2) * CELL_SIZE
+            wy = (y + 0.5 - FIELD_HEIGHT / 2) * CELL_SIZE
+
+            vel = get_vel_at_world_pos((wx, wy))
+
+            back = (wx - vel[0] * dt,
+                    wy - vel[1] * dt)
+            
+            for c in range(3):
+                newD[x, y, c] = sample_bilinear(D[..., c], FIELD_WIDTH, FIELD_HEIGHT, back) * 0.95
+
+    return newU, newV, newD
 
 def build_pressure_matrix(width, height):
     """
@@ -1164,7 +1255,7 @@ def step_implicit_diffusion_method():
         7. Advance time by a time step
     """
     
-    global U, V, P, T, CONVERGED
+    global U, V, D, P, T, CONVERGED
     
     mu = get_control("Viscosity")["Value"] / 1000.0
     rho = get_control("Density")["Value"]
@@ -1174,19 +1265,15 @@ def step_implicit_diffusion_method():
     
     U, V = diffuse_velocity(U, V, nu, dt)
     
-    U, V = advect(U, V, dt)
+    U, V, D = advect(U, V, D, dt)
     
     P = pressure_poisson_solve(P)
             
     U, V = project_velocities(U, V, rho, dt)
     
-    U = apply_boundary(U)
-    V = apply_boundary(V)
-    P = apply_boundary(P)
-    
-    if converged(1e-15):
-        on_pause(None, None, None)
-        CONVERGED = True
+    # if converged(1e-15):
+    #     on_pause(None, None, None)
+    #     CONVERGED = True
     
     T = T + dt
 
@@ -1207,6 +1294,8 @@ def init(field_width, field_height, cellsize):
     get_control("Viscosity")["OnChange"] = on_change_params
     get_control("Time step")["OnClick"] = on_click_slider
     get_control("Time step")["OnChange"] = on_change_params
+    get_control("Rendering Method")["OnClick"] = on_click_combobox
+    get_control("Rendering Method")["OnChange"] = on_change_rendering_method_presets
     get_control("Start")["OnClick"] = on_start
     get_control("Pause")["OnClick"] = on_pause
     get_control("Reset")["OnClick"] = on_reset
@@ -1219,10 +1308,10 @@ def init(field_width, field_height, cellsize):
     FIELD_WIDTH = field_width // cellsize
     FIELD_HEIGHT = field_height // cellsize
     CELL_SIZE = cellsize
-    on_change_state_presets(1)
+    on_change_state_presets(get_control("State preset")["Value"])
 
 def main():
-    global P
+    global U, V, D
     
     WIDTH, HEIGHT = 800, 600
     PANEL_WIDTH = 200
@@ -1301,6 +1390,8 @@ def main():
 
                                 if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
                                     V[x, y] += vely
+                                
+                                D[x, y, 2] = 255.0
 
                         continue
 
