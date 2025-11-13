@@ -388,6 +388,7 @@ SOLID = np.array([])
 FIELD_WIDTH = 0
 FIELD_HEIGHT = 0
 CELL_SIZE = 0
+M1 = None
 def initialize_state(state_type):
     global U, V, P, SOLID
 
@@ -811,78 +812,49 @@ def advect(U, V, dt):
 
     return newU, newV
 
-def pressure_solve_for_cell(x, y, rho, dt):
-    """
-    This function is used to calculate new pressure matrix based on current values.\n
-    Arguments:
-        x, y - cell coordinates to calculate
-        rho - density
-        dt - time step
-    Returns:
-        New pressure matrix
-    Algorithm:
-        1. Check which pressures must be accounted. Skip if solid or surrounded by solid cells
-        2. Calculate divergence
-        3. Calculate new pressure value
-    """
-    
-    fT = 0 if is_solid(x + 0, y + 1) else 1
-    fL = 0 if is_solid(x - 1, y + 0) else 1
-    fR = 0 if is_solid(x + 1, y + 0) else 1
-    fB = 0 if is_solid(x + 0, y - 1) else 1
+def build_pressure_matrix(width, height):
+    N = width * height
+    A = lil_matrix((N, N))
 
-    eC = fT + fL + fR + fB
-    if eC == 0 or is_solid(x, y):
-        return 0.0
+    def idx(x, y):
+        return y + x * height
 
-    div = calculate_velocity_divergence_at_cell(x, y)
+    for x in range(width):
+        for y in range(height):
+            i = idx(x, y)
 
-    pT = get_pressure(x + 0, y + 1) * fT
-    pL = get_pressure(x - 1, y + 0) * fL
-    pR = get_pressure(x + 1, y + 0) * fR
-    pB = get_pressure(x + 0, y - 1) * fB
+            if is_solid(x, y):
+                A[i, i] = 1.0
+                continue
 
-    alpha = -rho * CELL_SIZE * CELL_SIZE / dt
+            neighbors = 0
 
-    return (pL + pR + pT + pB + alpha * div) / eC
+            for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
+                if 0 <= nx < width and 0 <= ny < height and not is_solid(nx, ny):
+                    neighbors += 1
 
-def pressure_poisson_solve(P, rho, dt, iterations=40):
-    """
-    This function is used to iteratively solve pressure matrix.
-    Arguments:
-        P - current pressure matrix
-        rho - density
-        dt - time step
-        iterations - Jacobi iterations count
-    Returns:
-        New pressure matrix
-    Algorithm:
-        1. For every iteration, iterate every cell
-        2. For every cell, solve current pressure value
-        3. At the end of each iteration, copy to current pressure matrix
-    """
-    
-    for _ in range(iterations):
-        New_P = np.zeros_like(P)
-        for x in range(FIELD_WIDTH):
-            for y in range(FIELD_HEIGHT):
-                New_P[x, y] = pressure_solve_for_cell(x, y, rho, dt)
-        P[:] = New_P
-        
-    return P
+            A[i, i] = neighbors
 
-def pressure_solve_pyamg(P, divergence, is_solid):
-    H, W = P.shape
-    
-    A = build_pressure_matrix(H, W, is_solid)
+            for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
+                if 0 <= nx < width and 0 <= ny < height and not is_solid(nx, ny):
+                    j = idx(nx, ny)
+                    A[i, j] = -1.0
 
-    ml = pyamg.ruge_stuben_solver(A)
+    return A.tocsr()
 
+def pressure_poisson_solve(P):
+    W, H = P.shape
+
+    divergence = np.zeros([W, H])
+    for x in range(W - 1):
+        for y in range(H - 1):
+            divergence[x, y] = calculate_velocity_divergence_at_cell(x, y)
     b = divergence.flatten()
+    
+    old_p = P.flatten()
+    new_p = M1.solve(b, x0=old_p, maxiter=1, tol=0)
 
-    p = ml.solve(b, tol=1e-8)
-
-    return p.reshape(P.shape)
+    return new_p.reshape(P.shape)
         
 def project_velocities(U, V, rho, dt):
     """
@@ -946,7 +918,7 @@ def step_implicit_diffusion_method():
     
     U, V = advect(U, V, dt)
     
-    P = pressure_poisson_solve(P, rho, dt)
+    P = pressure_poisson_solve(P)
             
     U, V = project_velocities(U, V, rho, dt)
         
@@ -974,11 +946,14 @@ def init(field_width, field_height, cellsize):
     get_control("Pause")["Enabled"] = False
     get_control("Reset")["Enabled"] = False
     
-    global FIELD_WIDTH, FIELD_HEIGHT, CELL_SIZE
+    global FIELD_WIDTH, FIELD_HEIGHT, CELL_SIZE, M1
     FIELD_WIDTH = field_width // cellsize
     FIELD_HEIGHT = field_height // cellsize
     CELL_SIZE = cellsize
     initialize_state("wave")
+    
+    A = build_pressure_matrix(FIELD_WIDTH, FIELD_HEIGHT)
+    M1 = pyamg.ruge_stuben_solver(A)
 
 def main():
     WIDTH, HEIGHT = 800, 480
