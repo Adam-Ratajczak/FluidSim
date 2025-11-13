@@ -24,11 +24,23 @@ CONTROLS = [
         "Type" : "Combobox",
         "Value" : 1,
         "Items" : [
-            "Stagnant",
-            "Wave",
-            "Shear layer",
-            "Spiral",
-            "Checkerboard",
+            "stagnant",
+            "swirl",
+            "turbulence",
+            "vortex-ring",
+            "double-vortex",
+            "explosion",
+            "implosion",
+            "corner-blast",
+            "shear-wall",
+            "rotating-box",
+            "swirl-band",
+            "horizontal-sine",
+            "diagonal-shear",
+            "random-bursts",
+            "four-quad-vortex",
+            "taylor-green",
+            "kelvin-helmholtz",
         ]
     },
     {
@@ -343,18 +355,6 @@ def on_change_fluid_presets(index):
         get_control("Density")["Value"] = FLUID_PRESETS[index]["Density"]
         get_control("Viscosity")["Value"] = FLUID_PRESETS[index]["Viscosity"]
 
-def on_change_state_presets(index):
-    if index == 0:
-        initialize_state("stagnant")
-    elif index == 1:
-        initialize_state("wave")
-    elif index == 2:
-        initialize_state("shear layer")
-    elif index == 3:
-        initialize_state("spiral")
-    elif index == 4:
-        initialize_state("checkerboard")
-
 RUNNING = False
 CONVERGED = False
 def on_start(control, mouse_x, mouse_y):
@@ -417,55 +417,164 @@ CELL_SIZE = 0
 def initialize_state(state_type):
     global U, V, P, SOLID
 
-    U = np.zeros((FIELD_WIDTH + 1, FIELD_HEIGHT))
-    V = np.zeros((FIELD_WIDTH, FIELD_HEIGHT + 1))
-    P = np.zeros((FIELD_WIDTH, FIELD_HEIGHT))
-    SOLID = np.zeros((FIELD_WIDTH, FIELD_HEIGHT))
+    U = np.zeros((FIELD_WIDTH + 1, FIELD_HEIGHT), dtype=float)
+    V = np.zeros((FIELD_WIDTH, FIELD_HEIGHT + 1), dtype=float)
+    P = np.zeros((FIELD_WIDTH, FIELD_HEIGHT), dtype=float)
+    SOLID = np.zeros((FIELD_WIDTH, FIELD_HEIGHT), dtype=bool)
 
-    cx = FIELD_WIDTH / 2
-    cy = FIELD_HEIGHT / 2
-    scale = max(FIELD_WIDTH, FIELD_HEIGHT)
+    cx = (FIELD_WIDTH) * 0.5
+    cy = (FIELD_HEIGHT) * 0.5
 
-    if state_type == "stagnant":
-        P.fill(0.0)
-
-    elif state_type == "wave":
-        for y in range(FIELD_HEIGHT):
-            for x in range(FIELD_WIDTH):
-                P[x, y] = 8.0 * m.sin(2 * m.pi * x / FIELD_WIDTH)
-
-    elif state_type == "shear layer":
-        for y in range(FIELD_HEIGHT):
-            pressure = 10.0 if y < cy else -10.0
-            P[:, y] = pressure
-
-    elif state_type == "spiral":
+    if state_type == "swirl":
         for y in range(FIELD_HEIGHT):
             for x in range(FIELD_WIDTH):
                 dx = x - cx
                 dy = y - cy
-                r = m.sqrt(dx ** 2 + dy ** 2) / scale * 10.0
-                theta = m.atan2(dy, dx)
-                P[x, y] = 10.0 * m.sin(4 * theta + r)
+                r = max(np.sqrt(dx * dx + dy * dy), 1.0)
+                U[x, y]   = -dy / r * 5.0
+                U[x+1, y] = -dy / r * 5.0
+                V[x, y]   =  dx / r * 5.0
+                V[x, y+1] =  dx / r * 5.0
 
-    elif state_type == "checkerboard":
-        for y in range(FIELD_HEIGHT):
-            for x in range(FIELD_WIDTH):
-                val = ((x // 8 + y // 8) % 2) * 2 - 1
-                P[x, y] = val * 10.0
+    elif state_type == "kelvin-helmholtz":
+        for x in range(FIELD_WIDTH + 1):
+            for y in range(FIELD_HEIGHT):
+                if y < FIELD_HEIGHT // 2:
+                    U[x, y] = +5.0
+                else:
+                    U[x, y] = -5.0
+                U[x, y] += (np.random.rand() - 0.5) * 0.5
 
-    P[0, :] = P[1, :]
-    P[-1, :] = P[-2, :]
-    P[:, 0] = P[:, 1]
-    P[:, -1] = P[:, -2]
+    elif state_type == "taylor-green":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                X = x / FIELD_WIDTH * 2 * np.pi
+                Y = y / FIELD_HEIGHT * 2 * np.pi
+                U[x, y]   =  np.cos(X) * np.sin(Y) * 5.0
+                U[x+1, y] =  np.cos(X) * np.sin(Y) * 5.0
+                V[x, y]   = -np.sin(X) * np.cos(Y) * 5.0
+                V[x, y+1] = -np.sin(X) * np.cos(Y) * 5.0
 
-    U.fill(0.0)
-    V.fill(0.0)
-    SOLID.fill(False)
-    SOLID[[0, -1], :] = True
-    SOLID[:, [0, -1]] = True
-    
+    elif state_type == "diagonal-jet":
+        for i in range(min(FIELD_WIDTH, FIELD_HEIGHT)):
+            U[i, i] += 8.0
+            V[i, i] += 8.0
+
+    elif state_type == "turbulence":
+        U = np.random.randn(FIELD_WIDTH + 1, FIELD_HEIGHT) * 1.5
+        V = np.random.randn(FIELD_WIDTH, FIELD_HEIGHT + 1) * 1.5
+        
+    elif state_type == "vortex-ring":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = x - cx
+                dy = y - cy
+                r = np.sqrt(dx*dx + dy*dy)
+                if 10 < r < 25:
+                    V[x, y] += dx * 0.4
+                    U[x, y] -= dy * 0.4
+                    V[x, y+1] += dx * 0.4
+                    U[x+1, y] -= dy * 0.4
+
+    elif state_type == "double-vortex":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = x - cx
+                dy = y - cy
+                U[x, y] = -dy * 0.1
+                V[x, y] = dx * 0.1
+                dx2 = x - cx*0.5
+                dy2 = y - cy*0.5
+                U[x, y] += dy2 * 0.1
+                V[x, y] -= dx2 * 0.1
+
+    elif state_type == "explosion":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = x - cx
+                dy = y - cy
+                U[x, y] = dx * 0.3
+                V[x, y] = dy * 0.3
+                U[x+1, y] = dx * 0.3
+                V[x, y+1] = dy * 0.3
+
+    elif state_type == "implosion":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = x - cx
+                dy = y - cy
+                U[x, y] = -dx * 0.3
+                V[x, y] = -dy * 0.3
+                U[x+1, y] = -dx * 0.3
+                V[x, y+1] = -dy * 0.3
+
+    elif state_type == "corner-blast":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = x
+                dy = y
+                U[x, y] = dx * 0.2
+                V[x, y] = dy * 0.2
+                U[x+1, y] = dx * 0.2
+                V[x, y+1] = dy * 0.2
+
+    elif state_type == "shear-wall":
+        for x in range(FIELD_WIDTH+1):
+            for y in range(FIELD_HEIGHT):
+                U[x, y] = (y / FIELD_HEIGHT - 0.5) * 10.0
+
+    elif state_type == "rotating-box":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                U[x, y] = -(y - cy) * 0.2
+                V[x, y] =  (x - cx) * 0.2
+
+    elif state_type == "swirl-band":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                if cy-10 < y < cy+10:
+                    U[x, y] = 6.0 * np.sin(x * 0.2)
+                    V[x, y] = 6.0 * np.cos(x * 0.2)
+
+    elif state_type == "horizontal-sine":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                U[x, y] = np.sin(y / FIELD_HEIGHT * np.pi * 4) * 4.0
+
+    elif state_type == "diagonal-shear":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                U[x, y] = (x + y) * 0.01
+                V[x, y] = (x - y) * 0.01
+
+    elif state_type == "random-bursts":
+        for _ in range(25):
+            rx = np.random.randint(0, FIELD_WIDTH)
+            ry = np.random.randint(0, FIELD_HEIGHT)
+            for x in range(max(0,rx-3), min(FIELD_WIDTH,rx+3)):
+                for y in range(max(0,ry-3), min(FIELD_HEIGHT,ry+3)):
+                    U[x,y] += np.random.uniform(-5,5)
+                    V[x,y] += np.random.uniform(-5,5)
+
+    elif state_type == "four-quad-vortex":
+        for x in range(FIELD_WIDTH):
+            for y in range(FIELD_HEIGHT):
+                dx = (x - cx)
+                dy = (y - cy)
+                U[x,y] = np.sign(dx) * (-dy) * 0.15
+                V[x,y] = np.sign(dy) * (dx) * 0.15
+    P.fill(0.0)
+
+    SOLID[:, :] = False
+    SOLID[0, :] = True
+    SOLID[-1, :] = True
+    SOLID[:, 0] = True
+    SOLID[:, -1] = True
+
     on_change_params(None)
+
+def on_change_state_presets(index):
+    initialize_state(get_control("State preset")["Items"][index])
 
 COLOR_STOPS = {
     0.00: (0,   0,   139),   # dark blue
@@ -547,7 +656,7 @@ def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure
                          (xpos + width + 6, py), 2)
 
         pval = pressure_min + t * (pressure_max - pressure_min)
-        text = font.render(f"{pval:.2f}", True, (0, 0, 0))
+        text = font.render(f"{pval:.2E}", True, (0, 0, 0))
         screen.blit(text, (xpos + width + 10, py - text.get_height()//2))
 
 def render_scene(screen, font, xpos, ypos):
@@ -1075,7 +1184,7 @@ def step_implicit_diffusion_method():
     V = apply_boundary(V)
     P = apply_boundary(P)
     
-    if converged(1e-12):
+    if converged(1e-15):
         on_pause(None, None, None)
         CONVERGED = True
     
@@ -1110,14 +1219,19 @@ def init(field_width, field_height, cellsize):
     FIELD_WIDTH = field_width // cellsize
     FIELD_HEIGHT = field_height // cellsize
     CELL_SIZE = cellsize
-    initialize_state("wave")
+    on_change_state_presets(1)
 
 def main():
-    WIDTH, HEIGHT = 800, 480
+    global P
+    
+    WIDTH, HEIGHT = 800, 600
     PANEL_WIDTH = 200
     FONT_SIZE = 16
     SIM_SIZE = 300
     CELL_SIZE = 5
+    DRAWING_RADIUS = 3
+    SCENE_X = (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2
+    SCENE_Y = (HEIGHT - SIM_SIZE) // 2
     
     pygame.init()
     init(SIM_SIZE, SIM_SIZE, CELL_SIZE)
@@ -1131,12 +1245,16 @@ def main():
     previous_time = pygame.time.get_ticks()
 
     dragging_control = None
+    dragging_scene = False
+    prev_mouse = None
+
     while True:
         current_time = pygame.time.get_ticks()
         delta_time = current_time - previous_time
-        
+
         if delta_time >= 50:
             previous_time = current_time
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -1144,25 +1262,58 @@ def main():
 
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     mouse_x, mouse_y = event.pos
-                    
+                    prev_mouse = (mouse_x, mouse_y)
+
+                    if SCENE_X <= mouse_x <= SCENE_X + SIM_SIZE and \
+                    SCENE_Y <= mouse_y <= SCENE_Y + SIM_SIZE:
+
+                        dragging_scene = True
+                        continue
+
                     control = get_control_from_pt(mouse_x, mouse_y)
-                    if not control:
-                        continue
-                    if not control.get("Enabled", False):
-                        continue
-                    if "OnClick" in control:
-                        control["OnClick"](control, mouse_x, mouse_y)
-                        dragging_control = control
-                        
+                    if control and control.get("Enabled", False):
+                        if "OnClick" in control:
+                            control["OnClick"](control, mouse_x, mouse_y)
+                            dragging_control = control
+                    continue
+
                 if event.type == pygame.MOUSEMOTION:
+                    mouse_x, mouse_y = event.pos
+
+                    if dragging_scene and prev_mouse:
+                        dx = mouse_x - prev_mouse[0]
+                        dy = mouse_y - prev_mouse[1]
+                        prev_mouse = (mouse_x, mouse_y)
+
+                        cx = (mouse_x - SCENE_X) // CELL_SIZE
+                        cy = (mouse_y - SCENE_Y) // CELL_SIZE
+
+                        velx = dx
+                        vely = dy
+
+                        for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
+                                    clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
+                            for y in range(clamp(cy - DRAWING_RADIUS, 0, FIELD_HEIGHT),
+                                        clamp(cy + DRAWING_RADIUS, 0, FIELD_HEIGHT)):
+
+                                if 0 <= x < FIELD_WIDTH + 1 and 0 <= y < FIELD_HEIGHT:
+                                    U[x, y] += velx
+
+                                if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
+                                    V[x, y] += vely
+
+                        continue
+
                     if dragging_control:
-                        mouse_x, mouse_y = event.pos
                         if "OnClick" in dragging_control:
                             dragging_control["OnClick"](dragging_control, mouse_x, mouse_y)
+                        continue
 
                 if event.type == pygame.MOUSEBUTTONUP:
-                    if dragging_control:
-                        dragging_control = None
+                    dragging_scene = False
+                    dragging_control = None
+                    prev_mouse = None
+
 
         if RUNNING:
             step_simulation()
@@ -1170,7 +1321,7 @@ def main():
         bg_rect = pygame.Rect(0, 0, WIDTH - PANEL_WIDTH, HEIGHT)
         pygame.draw.rect(screen, COLORISTICS["BG_COLOR"], bg_rect)
     
-        render_scene(screen, font, (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2, (HEIGHT - SIM_SIZE) // 2)
+        render_scene(screen, font, SCENE_X, SCENE_Y)
         render_gui(screen, font, WIDTH - PANEL_WIDTH, 0, PANEL_WIDTH, HEIGHT)
         render_info(screen, font, 10, 10)
 
