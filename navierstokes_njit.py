@@ -3,6 +3,7 @@ import sys
 import math as m
 import numpy as np
 import scipy.ndimage as sim
+from numba import njit, prange
 
 CONTROLS = [
     {
@@ -538,7 +539,7 @@ def render_scene(screen, font, xpos, ypos):
             velocity_mag = m.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1])
             velocity_max = max(velocity_max, velocity_mag)
             
-            p = get_pressure(x, y)
+            p = get_pressure(P, x, y)
             pressure_min = min(pressure_min, p)
             pressure_max = max(pressure_max, p)
     
@@ -556,7 +557,7 @@ def render_scene(screen, font, xpos, ypos):
             
     for x in range(0, FIELD_WIDTH):
         for y in range(0, FIELD_HEIGHT):
-            if is_solid(x, y):
+            if is_solid(SOLID, x, y):
                 pixel_rect = pygame.Rect(xpos + x * CELL_SIZE, ypos + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                 pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
     
@@ -583,8 +584,8 @@ def on_change_method_presets(index):
     global DEFAULT_METHOD
     DEFAULT_METHOD = index
 
-
-def calculate_velocity_divergence_at_cell(x, y):
+@njit
+def calculate_velocity_divergence_at_cell(U, V, x, y):
     """
     This function is used to get divergence value for given cell.\n
     Arguments:
@@ -605,7 +606,8 @@ def calculate_velocity_divergence_at_cell(x, y):
     
     return divergence
 
-def get_pressure(x, y):
+@njit
+def get_pressure(P, x, y):
     """
     This function is used to safely get pressure value.\n
     Arguments:
@@ -614,10 +616,11 @@ def get_pressure(x, y):
         0 if coordinates out of bounds, pressure value otherwise
     """
     
-    oob = (x < 0 or x >= FIELD_WIDTH or y < 0 or y >= FIELD_HEIGHT)
+    oob = (x < 0 or x >= P.shape[0] or y < 0 or y >= P.shape[1])
     return 0 if oob else P[x, y]
 
-def is_solid(x, y):
+@njit
+def is_solid(S, x, y):
     """
     This function is used to safely get solid value.\n
     Arguments:
@@ -626,65 +629,35 @@ def is_solid(x, y):
         True if tile is solid or for coordinates out of bounds, False otherwise
     """
     
-    oob = (x < 0 or x >= FIELD_WIDTH or y < 0 or y >= FIELD_HEIGHT)
-    return True if oob else SOLID[x, y]
+    oob = (x < 0 or x >= S.shape[0] or y < 0 or y >= S.shape[1])
+    return True if oob else S[x, y]
 
-def diffuse_velocity(U, V, nu, dt, iterations=40):
-    """
-    This function performs viscosity, which makes velocity spread out and smooth over time.\n
-    Arguments:
-        U, V - velocity matrices
-        nu - kinematic viscocity
-        dt - time step
-        iterations - Jacobi iterations count
-    Returns:
-        U and V velocities
-    Algorithm:
-        1. Save initial U and V states
-        2. For each iteration, perform jacobi diffusion
-        3. Repeat for every U and V edge, for given jacobi iterations
-    """
+@njit(parallel=True)
+def diffuse_field(F, F0, a, S, iterations=10):
+    width = F.shape[0]
+    height = F.shape[1]
     
-    h = CELL_SIZE
-    a = dt * nu / (h * h)
-
-    U0 = U.copy()
-    V0 = V.copy()
-
     for _ in range(iterations):
-        NewU = U.copy()
-        NewV = V.copy()
+        NewF = F.copy()
 
-        for x in range(1, FIELD_WIDTH):
-            for y in range(1, FIELD_HEIGHT-1):
-                if is_solid(x, y):  
-                    continue
-                uL = U[x+1,y] 
-                uR = U[x-1,y]
-                uT = U[x,y+1]
-                uB = U[x,y-1]
-                au0 = U0[x,y] * a
-                
-                NewU[x, y] = (uL + uR + uT + uB + au0) / (4 + a)
-
-        for x in range(1, FIELD_WIDTH-1):
-            for y in range(1, FIELD_HEIGHT):
-                if is_solid(x, y):
+        for x in prange(1, width - 1):
+            for y in range(1, height - 1):
+                if is_solid(S, x, y):
                     continue
 
-                vL = V[x+1,y] 
-                vR = V[x-1,y]
-                vT = V[x,y+1]
-                vB = V[x,y-1]
-                av0 = V0[x,y] * a
+                fL = F[x+1,y] 
+                fR = F[x-1,y]
+                fT = F[x,y+1]
+                fB = F[x,y-1]
+                af0 = F0[x,y] * a
                 
-                NewV[x, y] = (vL + vR + vT + vB + av0) / (4 + a)
+                NewF[x, y] = (fL + fR + fT + fB + af0) / (4 + a)
 
-        U[:] = NewU
-        V[:] = NewV
+        F[:] = NewF
 
-    return U, V
+    return F
 
+@njit
 def clamp(x, a, b):
     """
     This function is used to clamp x argument in a range [a, b].\n
@@ -696,6 +669,7 @@ def clamp(x, a, b):
     """
     return min(max(x, a), b)
 
+@njit
 def lerp(a, b, t):
     """
     This function is used for linear interpolation between two values a and b.\n
@@ -707,7 +681,8 @@ def lerp(a, b, t):
     """
     return a + (b - a) * t
 
-def sample_bilinear(eV, eCX, eCY, worldPos):
+@njit
+def sample_bilinear(F, worldPos):
     """
     This function is used for sampling eV matrix at worldPos.\n
     Arguments:
@@ -722,26 +697,27 @@ def sample_bilinear(eV, eCX, eCY, worldPos):
         3. Interpolate by X and Y axis
     """
     
-    width = (eCX - 1) * CELL_SIZE
-    height = (eCY - 1) * CELL_SIZE
+    width = (F.shape[0] - 1) * CELL_SIZE
+    height = (F.shape[1] - 1) * CELL_SIZE
     
     px = (worldPos[0] + width // 2) // CELL_SIZE
     py = (worldPos[1] + height // 2) // CELL_SIZE
     
-    left = int(clamp(px, 0, eCX - 2))
-    bottom = int(clamp(py, 0, eCY - 2))
+    left = int(clamp(px, 0, F.shape[0] - 2))
+    bottom = int(clamp(py, 0, F.shape[1] - 2))
     right = left + 1
     top = bottom + 1
     
     xFrac = clamp(px - left, 0, 1)
     yFrac = clamp(py - bottom, 0, 1)
     
-    vT = lerp(eV[left, top], eV[right, top], xFrac)
-    vB = lerp(eV[left, bottom], eV[right, bottom], xFrac)
+    fT = lerp(F[left, top], F[right, top], xFrac)
+    fB = lerp(F[left, bottom], F[right, bottom], xFrac)
     
-    return lerp(vB, vT, yFrac)
+    return lerp(fB, fT, yFrac)
 
-def get_vel_at_world_pos(worldPos):
+@njit
+def get_vel_at_world_pos(U, V, worldPos):
     """
     This function is used for sampling velocities at worldPos.\n
     Arguments:
@@ -750,65 +726,42 @@ def get_vel_at_world_pos(worldPos):
         Sampled velocity vector at given coordinates.
     """
     
-    velX = sample_bilinear(U, FIELD_WIDTH + 1, FIELD_HEIGHT, worldPos)
-    velY = sample_bilinear(V, FIELD_WIDTH, FIELD_HEIGHT + 1, worldPos)
+    velX = sample_bilinear(U, worldPos)
+    velY = sample_bilinear(V, worldPos)
     
-    return (velX, velY)
+    return velX, velY
 
-def advect(U, V, dt):
-    """
-    This function is used for moving velocities forward in the field using semi-Lagrangian method.\n
-    Arguments:
-        U, V - velocity matrices
-        dt - time step
-    Returns:
-        advanced U and V matrices.
-    Algorithm:
-        1. Get sampled velocity
-        2. Calculate 
-        3. Interpolate by X and Y axis
-    """
+@njit(parallel=True)
+def advect_field(U, V, dt, h, axis, S):
+    F = U if axis == 0 else V
+    newF = F.copy()
+    width = F.shape[0]
+    height = F.shape[1]
     
-    newU = U.copy()
-    newV = V.copy()
+    axisx = 1 if axis == 0 else 0
+    axisy = 1 if axis == 1 else 0
+    
+    for x in prange(width):
+        for y in range(height):
 
-    for x in range(FIELD_WIDTH + 1):
-        for y in range(FIELD_HEIGHT):
-
-            if is_solid(x, y) or is_solid(x-1, y):
-                newU[x][y] = 0
+            if is_solid(S, x, y) or is_solid(S, x-1, y):
+                newF[x][y] = 0
                 continue
 
-            wx = (x - FIELD_WIDTH/2) * CELL_SIZE
-            wy = (y - FIELD_HEIGHT/2) * CELL_SIZE
+            wx = (x - (width - axisx)/2) * h
+            wy = (y - (height - axisy)/2) * h
 
-            vel = get_vel_at_world_pos((wx, wy))
+            vel = get_vel_at_world_pos(U, V, (wx, wy))
 
             back = (wx - vel[0] * dt,
                     wy - vel[1] * dt)
 
-            newU[x][y] = sample_bilinear(U, FIELD_WIDTH+1, FIELD_HEIGHT, back)
+            newF[x][y] = sample_bilinear(F, back)
 
-    for x in range(FIELD_WIDTH):
-        for y in range(FIELD_HEIGHT + 1):
+    return newF
 
-            if is_solid(x, y) or is_solid(x, y-1):
-                newV[x][y] = 0
-                continue
-
-            wx = (x - FIELD_WIDTH/2) * CELL_SIZE
-            wy = (y - FIELD_HEIGHT/2) * CELL_SIZE
-
-            vel = get_vel_at_world_pos((wx, wy))
-
-            back = (wx - vel[0] * dt,
-                    wy - vel[1] * dt)
-
-            newV[x][y] = sample_bilinear(V, FIELD_WIDTH, FIELD_HEIGHT+1, back)
-
-    return newU, newV
-
-def pressure_solve_for_cell(x, y, rho, dt):
+@njit
+def pressure_solve_for_cell(U, V, P, S, x, y, rho, dt, h):
     """
     This function is used to calculate new pressure matrix based on current values.\n
     Arguments:
@@ -823,27 +776,28 @@ def pressure_solve_for_cell(x, y, rho, dt):
         3. Calculate new pressure value
     """
     
-    fT = 0 if is_solid(x + 0, y + 1) else 1
-    fL = 0 if is_solid(x - 1, y + 0) else 1
-    fR = 0 if is_solid(x + 1, y + 0) else 1
-    fB = 0 if is_solid(x + 0, y - 1) else 1
+    fT = 0 if is_solid(S, x + 0, y + 1) else 1
+    fL = 0 if is_solid(S, x - 1, y + 0) else 1
+    fR = 0 if is_solid(S, x + 1, y + 0) else 1
+    fB = 0 if is_solid(S, x + 0, y - 1) else 1
 
     eC = fT + fL + fR + fB
-    if eC == 0 or is_solid(x, y):
+    if eC == 0 or is_solid(S, x, y):
         return 0.0
 
-    div = calculate_velocity_divergence_at_cell(x, y)
+    div = calculate_velocity_divergence_at_cell(U, V, x, y)
 
-    pT = get_pressure(x + 0, y + 1) * fT
-    pL = get_pressure(x - 1, y + 0) * fL
-    pR = get_pressure(x + 1, y + 0) * fR
-    pB = get_pressure(x + 0, y - 1) * fB
+    pT = get_pressure(P, x + 0, y + 1) * fT
+    pL = get_pressure(P, x - 1, y + 0) * fL
+    pR = get_pressure(P, x + 1, y + 0) * fR
+    pB = get_pressure(P, x + 0, y - 1) * fB
 
-    alpha = -rho * CELL_SIZE * CELL_SIZE / dt
+    alpha = -rho * h * h / dt
 
     return (pL + pR + pT + pB + alpha * div) / eC
 
-def pressure_poisson_solve(P, rho, dt, iterations=40):
+@njit(parallel=True)
+def pressure_poisson_solve(U, V, P, S, rho, dt, h, iterations=10):
     """
     This function is used to iteratively solve pressure matrix.
     Arguments:
@@ -859,52 +813,33 @@ def pressure_poisson_solve(P, rho, dt, iterations=40):
         3. At the end of each iteration, copy to current pressure matrix
     """
     
+    width = P.shape[0]
+    height = P.shape[1]
     for _ in range(iterations):
         New_P = np.zeros_like(P)
-        for x in range(FIELD_WIDTH):
-            for y in range(FIELD_HEIGHT):
-                New_P[x, y] = pressure_solve_for_cell(x, y, rho, dt)
+        for x in prange(width):
+            for y in range(height):
+                New_P[x, y] = pressure_solve_for_cell(U, V, P, S, x, y, rho, dt, h)
         P[:] = New_P
         
     return P
-        
-def project_velocities(U, V, rho, dt):
-    """
-    This function is used to update U and V matrices based on new pressure matrix.\n
-    Arguments:
-        U, V - velocity matrices
-        rho - density
-        dt - time step
-    Returns:
-        U and V velocities
-    Algorithm:
-        1. Calculate pressure difference multiplied by density coefficient along the cell
-        2. Subtract from current velocity value at given edge
-        3. Repeat for every U and V edge
-    """
+
+@njit(parallel=True)
+def project_field(F, k, axis, S):
+    width = F.shape[0]
+    height = F.shape[1]
     
-    k = dt / (rho * CELL_SIZE)
-    for x in range(0, FIELD_WIDTH + 1):
-        for y in range(0, FIELD_HEIGHT):
-            if is_solid(x - 1, y) or is_solid(x, y):
-                U[x, y] = 0.0
+    for x in prange(0, width):
+        for y in range(0, height):
+            if is_solid(S, x, y - 1) or is_solid(S, x, y):
+                F[x, y] = 0.0
                 continue
             
-            pL = get_pressure(x - 1, y + 0)
-            pR = get_pressure(x + 0, y + 0)
-            U[x, y] = U[x, y] - k * (pR - pL)
-            
-    for x in range(0, FIELD_WIDTH):
-        for y in range(0, FIELD_HEIGHT + 1):
-            if is_solid(x, y - 1) or is_solid(x, y):
-                V[x, y] = 0.0
-                continue
-            
-            pT = get_pressure(x + 0, y + 0)
-            pB = get_pressure(x + 0, y - 1)
-            V[x, y] = V[x, y] - k * (pT - pB)
+            p1 = get_pressure(P, x - 1, y + 0) if axis == 0 else get_pressure(P, x + 0, y + 0)
+            p2 = get_pressure(P, x + 0, y + 0) if axis == 0 else get_pressure(P, x + 0, y - 1)
+            F[x, y] = F[x, y] - k * (p1 - p2)
     
-    return U, V
+    return F
         
 def step_implicit_diffusion_method():
     """
@@ -926,13 +861,21 @@ def step_implicit_diffusion_method():
     
     nu = mu / rho
     
-    U, V = diffuse_velocity(U, V, nu, dt)
+    a = dt * nu / (CELL_SIZE * CELL_SIZE)
+    U0 = U.copy()
+    V0 = V.copy()
     
-    U, V = advect(U, V, dt)
+    U = diffuse_field(U, U0, a, SOLID)
+    V = diffuse_field(V, V0, a, SOLID)
     
-    P = pressure_poisson_solve(P, rho, dt)
+    U = advect_field(U, V, dt, CELL_SIZE, 0, SOLID)
+    V = advect_field(U, V, dt, CELL_SIZE, 1, SOLID)
+    
+    P = pressure_poisson_solve(U, V, P, SOLID, rho, dt, CELL_SIZE)
             
-    U, V = project_velocities(U, V, rho, dt)
+    k = dt / (rho * CELL_SIZE)
+    U = project_field(U, k, 0, SOLID)
+    V = project_field(V, k, 0, SOLID)
         
     T = T + dt
 
