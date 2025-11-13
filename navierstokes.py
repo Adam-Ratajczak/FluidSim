@@ -465,6 +465,8 @@ def initialize_state(state_type):
     SOLID.fill(False)
     SOLID[[0, -1], :] = True
     SOLID[:, [0, -1]] = True
+    
+    on_change_params(None)
 
 COLOR_STOPS = {
     0.00: (0,   0,   139),   # dark blue
@@ -1086,8 +1088,6 @@ def init(field_width, field_height, cellsize):
     FIELD_HEIGHT = field_height // cellsize
     CELL_SIZE = cellsize
     initialize_state("wave")
-    
-    on_change_params(None)
 
 def main():
     WIDTH, HEIGHT = 800, 480
