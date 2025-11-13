@@ -596,17 +596,13 @@ def calculate_velocity_divergence_at_cell(x, y):
         Divergence value based on current velocity matrices
     """
     
-    vT = V[x + 0, y + 1]
-    vL = U[x + 0, y + 0]
-    vR = U[x + 0, y + 1]
-    vB = V[x + 0, y + 0]
-    
-    gX = (vR - vL) / CELL_SIZE
-    gY = (vT - vB) / CELL_SIZE
-    
-    divergence = gX + gY
-    
-    return divergence
+    uR = U[x+1, y]
+    uL = U[x,   y]
+    vT = V[x,   y+1]
+    vB = V[x,   y]
+
+    div = ((uR - uL) + (vT - vB)) / CELL_SIZE
+    return div
 
 def get_pressure(x, y):
     """
@@ -880,7 +876,7 @@ def project_velocities(U, V, rho, dt):
             
             pL = get_pressure(x - 1, y + 0)
             pR = get_pressure(x + 0, y + 0)
-            U[x, y] = U[x, y] - k * (pR - pL)
+            U[x, y] -= k * (pR - pL)
             
     for x in range(0, FIELD_WIDTH):
         for y in range(0, FIELD_HEIGHT + 1):
@@ -890,7 +886,7 @@ def project_velocities(U, V, rho, dt):
             
             pT = get_pressure(x + 0, y + 0)
             pB = get_pressure(x + 0, y - 1)
-            V[x, y] = V[x, y] - k * (pT - pB)
+            V[x, y] -= k * (pT - pB)
     
     return U, V
         
