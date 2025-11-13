@@ -3,6 +3,8 @@ import sys
 import math as m
 import numpy as np
 import scipy.ndimage as sim
+from scipy.sparse import lil_matrix
+import pyamg
 
 CONTROLS = [
     {
@@ -629,7 +631,31 @@ def is_solid(x, y):
     oob = (x < 0 or x >= FIELD_WIDTH or y < 0 or y >= FIELD_HEIGHT)
     return True if oob else SOLID[x, y]
 
-def diffuse_velocity(U, V, nu, dt, iterations=40):
+def build_diffusion_matrix(width, height, a):
+    N = width * height
+    A = lil_matrix((N, N))
+
+    def idx(x, y):
+        return y + x * height
+
+    for x in range(width):
+        for y in range(height):
+            if is_solid(x, y):
+                i = idx(x, y)
+                A[i, i] = 1.0
+                continue
+
+            i = idx(x, y)
+            A[i, i] = 4 + a
+
+            for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
+                if 0 <= nx < width and 0 <= ny < height and not is_solid(nx, ny):
+                    j = idx(nx, ny)
+                    A[i, j] = -1
+
+    return A.tocsr()
+    
+def diffuse_velocity(U, V, nu, dt):
     """
     This function performs viscosity, which makes velocity spread out and smooth over time.\n
     Arguments:
@@ -644,44 +670,21 @@ def diffuse_velocity(U, V, nu, dt, iterations=40):
         2. For each iteration, perform jacobi diffusion
         3. Repeat for every U and V edge, for given jacobi iterations
     """
-    
     h = CELL_SIZE
-    a = dt * nu / (h * h)
+    a = dt * nu / (h*h)
 
-    U0 = U.copy()
-    V0 = V.copy()
+    W, H = U.shape
+    A = build_diffusion_matrix(W, H, a)
 
-    for _ in range(iterations):
-        NewU = U.copy()
-        NewV = V.copy()
+    ml = pyamg.ruge_stuben_solver(A)
 
-        for x in range(1, FIELD_WIDTH):
-            for y in range(1, FIELD_HEIGHT-1):
-                if is_solid(x, y):  
-                    continue
-                uL = U[x+1,y] 
-                uR = U[x-1,y]
-                uT = U[x,y+1]
-                uB = U[x,y-1]
-                au0 = U0[x,y] * a
-                
-                NewU[x, y] = (uL + uR + uT + uB + au0) / (4 + a)
+    def solve_component(field):
+        b = (a * field).flatten()
+        x = ml.solve(b, tol=1e-8)
+        return x.reshape(field.shape)
 
-        for x in range(1, FIELD_WIDTH-1):
-            for y in range(1, FIELD_HEIGHT):
-                if is_solid(x, y):
-                    continue
-
-                vL = V[x+1,y] 
-                vR = V[x-1,y]
-                vT = V[x,y+1]
-                vB = V[x,y-1]
-                av0 = V0[x,y] * a
-                
-                NewV[x, y] = (vL + vR + vT + vB + av0) / (4 + a)
-
-        U[:] = NewU
-        V[:] = NewV
+    U = solve_component(U)
+    V = solve_component(V)
 
     return U, V
 
@@ -867,6 +870,19 @@ def pressure_poisson_solve(P, rho, dt, iterations=40):
         P[:] = New_P
         
     return P
+
+def pressure_solve_pyamg(P, divergence, is_solid):
+    H, W = P.shape
+    
+    A = build_pressure_matrix(H, W, is_solid)
+
+    ml = pyamg.ruge_stuben_solver(A)
+
+    b = divergence.flatten()
+
+    p = ml.solve(b, tol=1e-8)
+
+    return p.reshape(P.shape)
         
 def project_velocities(U, V, rho, dt):
     """
