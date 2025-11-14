@@ -368,6 +368,7 @@ def on_change_fluid_presets(index):
 
 RUNNING = False
 CONVERGED = False
+SMOKE_MODE = 0
 def on_start(control, mouse_x, mouse_y):
     get_control("Model preset")["Enabled"] = False
     get_control("State preset")["Enabled"] = False
@@ -577,16 +578,13 @@ def initialize_state(state_type):
                 U[x,y] = np.sign(dx) * (-dy) * 0.15
                 V[x,y] = np.sign(dy) * (dx) * 0.15
     P.fill(0.0)
+    D.fill(0.0)
     
-    velocity_max = get_max_vel()
+    tweak_values = 10
     for x in range(FIELD_WIDTH):
         for y in range(FIELD_HEIGHT):
-            velocity = (U[x, y], V[x, y])
-            velocity_mag = m.sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1])
-            if velocity_max != 0:
-                D[x, y] = (velocity_mag / velocity_max * 255.0, 0, 0)
-            else:
-                D[x, y] = (0, 0, 0)
+            U[x, y] *= tweak_values
+            V[x, y] *= tweak_values
     
     SOLID[:, :] = False
     SOLID[0, :] = True
@@ -660,13 +658,15 @@ def render_arrow_field(screen, xpos, ypos, arrow_color):
     arrow_shaft = 3
     arrow_freq = 5
 
-    velocity_max = get_max_vel()
+    # velocity_max = get_max_vel()
+    velocity_max = 10
     for x in range(arrow_freq // 2, FIELD_WIDTH, arrow_freq):
         for y in range(arrow_freq // 2, FIELD_HEIGHT, arrow_freq):
                 velocity = (U[x, y], V[x, y])
                 velocity_mag = m.sqrt((velocity[0] * CELL_SIZE) ** 2 + (velocity[1] * CELL_SIZE) ** 2)
-                if velocity_max >= 1e-12:
-                    draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * velocity_mag / velocity_max, arrow_head, arrow_shaft)
+                if velocity_mag >= 1e-12 and velocity_max >= 1e-12:
+                    t = clamp(velocity_mag / velocity_max, 0, 1)
+                    draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * t * CELL_SIZE, arrow_head, arrow_shaft)
 
 def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure_max, ticks):
     vals = np.linspace(0.0, 1.0, height)
@@ -744,7 +744,7 @@ def render_smoke(screen, xpos, ypos):
     for c in range(3):
         smooth[:, :, c] = sim.zoom(D[:, :, c],
                                    zoom=CELL_SIZE,
-                                   order=1)
+                                   order=1) * 255.0
     
     surf = pygame.surfarray.make_surface(smooth)
     screen.blit(surf, (xpos, ypos))
@@ -771,10 +771,19 @@ def render_scene(screen, font, xpos, ypos):
 def render_info(screen, font, xpos, ypos):
     text = font.render(f"Time elapsed: {T:.2f} s", True, (0, 0, 0))
     screen.blit(text, (xpos, ypos))
+    if SMOKE_MODE == 0:
+        text = font.render("Smoke: red", True, (0, 0, 0))
+        screen.blit(text, (xpos, ypos + 30))
+    elif SMOKE_MODE == 1:
+        text = font.render("Smoke: green", True, (0, 0, 0))
+        screen.blit(text, (xpos, ypos + 30))
+    elif SMOKE_MODE == 2:
+        text = font.render("Smoke: blue", True, (0, 0, 0))
+        screen.blit(text, (xpos, ypos + 30))
     
     if CONVERGED:
         text = font.render("Converged!", True, (0, 0, 0))
-        screen.blit(text, (xpos, ypos + 30))
+        screen.blit(text, (xpos, ypos + 60))
 
 DEFAULT_METHOD = 0
 def on_change_method_presets(index):
@@ -1088,7 +1097,7 @@ def advect(U, V, D, dt):
                     wy - vel[1] * dt)
             
             for c in range(3):
-                newD[x, y, c] = sample_bilinear(D[..., c], FIELD_WIDTH, FIELD_HEIGHT, back) * 0.95
+                newD[x, y, c] = sample_bilinear(D[..., c], FIELD_WIDTH, FIELD_HEIGHT, back) * 0.99
 
     return newU, newV, newD
 
@@ -1263,7 +1272,7 @@ def step_implicit_diffusion_method():
     
     nu = mu / rho
     
-    U, V = diffuse_velocity(U, V, nu, dt)
+    # U, V = diffuse_velocity(U, V, nu, dt)
     
     U, V, D = advect(U, V, D, dt)
     
@@ -1311,7 +1320,7 @@ def init(field_width, field_height, cellsize):
     on_change_state_presets(get_control("State preset")["Value"])
 
 def main():
-    global U, V, D
+    global U, V, D, SMOKE_MODE
     
     WIDTH, HEIGHT = 800, 600
     PANEL_WIDTH = 200
@@ -1319,6 +1328,7 @@ def main():
     SIM_SIZE = 300
     CELL_SIZE = 5
     DRAWING_RADIUS = 3
+    SMOKE_RADIUS = 5
     SCENE_X = (WIDTH - PANEL_WIDTH - SIM_SIZE) // 2
     SCENE_Y = (HEIGHT - SIM_SIZE) // 2
     
@@ -1365,6 +1375,11 @@ def main():
                             control["OnClick"](control, mouse_x, mouse_y)
                             dragging_control = control
                     continue
+                if event.type == pygame.MOUSEWHEEL:
+                    if event.y > 0.0:
+                        SMOKE_MODE = 0 if SMOKE_MODE == 2 else SMOKE_MODE + 1
+                    else:
+                        SMOKE_MODE = 2 if SMOKE_MODE == 0 else SMOKE_MODE - 1
 
                 if event.type == pygame.MOUSEMOTION:
                     mouse_x, mouse_y = event.pos
@@ -1377,21 +1392,26 @@ def main():
                         cx = (mouse_x - SCENE_X) // CELL_SIZE
                         cy = (mouse_y - SCENE_Y) // CELL_SIZE
 
-                        velx = dx
-                        vely = dy
-
+                        velx = dx * 10
+                        vely = dy * 10
+                        
                         for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
                                     clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
                             for y in range(clamp(cy - DRAWING_RADIUS, 0, FIELD_HEIGHT),
                                         clamp(cy + DRAWING_RADIUS, 0, FIELD_HEIGHT)):
+                                if (x - cx) ** 2 + (cy - y) ** 2 <= DRAWING_RADIUS ** 2:
+                                    if 0 <= x < FIELD_WIDTH + 1 and 0 <= y < FIELD_HEIGHT:
+                                        U[x, y] += velx
 
-                                if 0 <= x < FIELD_WIDTH + 1 and 0 <= y < FIELD_HEIGHT:
-                                    U[x, y] += velx
-
-                                if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
-                                    V[x, y] += vely
-                                
-                                D[x, y, 2] = 255.0
+                                    if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
+                                        V[x, y] += vely
+                        
+                        for x in range(clamp(cx - SMOKE_RADIUS, 0, FIELD_WIDTH),
+                                    clamp(cx + SMOKE_RADIUS, 0, FIELD_WIDTH)):
+                            for y in range(clamp(cy - SMOKE_RADIUS, 0, FIELD_HEIGHT),
+                                        clamp(cy + SMOKE_RADIUS, 0, FIELD_HEIGHT)):
+                                if (x - cx) ** 2 + (cy - y) ** 2 <= SMOKE_RADIUS ** 2:
+                                    D[x, y, SMOKE_MODE] = 1.0
 
                         continue
 
