@@ -658,8 +658,7 @@ def render_arrow_field(screen, xpos, ypos, arrow_color):
     arrow_shaft = 3
     arrow_freq = 5
 
-    # velocity_max = get_max_vel()
-    velocity_max = 10
+    velocity_max = get_max_vel()
     for x in range(arrow_freq // 2, FIELD_WIDTH, arrow_freq):
         for y in range(arrow_freq // 2, FIELD_HEIGHT, arrow_freq):
                 velocity = (U[x, y], V[x, y])
@@ -891,22 +890,22 @@ def build_diffusion_matrix(width, height, a):
 
     for x in range(width):
         for y in range(height):
+            i = idx(x, y)
+
             if is_solid(x, y):
-                i = idx(x, y)
                 A[i, i] = 1.0
                 continue
 
-            i = idx(x, y)
-            A[i, i] = 4 + a
+            A[i, i] = 1.0 + 4.0 * a
 
             for nx, ny in [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]:
                 if 0 <= nx < width and 0 <= ny < height and not is_solid(nx, ny):
                     j = idx(nx, ny)
-                    A[i, j] = -1
+                    A[i, j] = -a
 
     return A.tocsr()
     
-def diffuse_velocity(U, V, nu, dt):
+def diffuse_velocity(U, V):
     """
     Description:
         Applies implicit diffusion (viscosity) to the velocity field.
@@ -936,12 +935,9 @@ def diffuse_velocity(U, V, nu, dt):
         3. Return the diffused U and V fields.
     """
 
-    h = CELL_SIZE
-    a = dt * nu / (h*h)
     def solve_component(F, solver):
-        b = (a * F).flatten()
-        old_f = F.flatten()
-        x = solver.solve(b, x0=old_f, maxiter=1, tol=0)
+        b = F.flatten()
+        x = solver.solve(b, maxiter=1)
         return x.reshape(F.shape)
 
     U = solve_component(U, M_DiffussionU)
@@ -1191,7 +1187,7 @@ def pressure_poisson_solve(P):
     b = divergence.flatten()
     
     old_p = P.flatten()
-    new_p = M_Pressure.solve(b, x0=old_p, maxiter=1, tol=0)
+    new_p = M_Pressure.solve(b, x0=old_p, maxiter=1)
 
     return new_p.reshape(P.shape)
         
@@ -1266,23 +1262,16 @@ def step_implicit_diffusion_method():
     
     global U, V, D, P, T, CONVERGED
     
-    mu = get_control("Viscosity")["Value"] / 1000.0
     rho = get_control("Density")["Value"]
     dt = get_control("Time step")["Value"]
     
-    nu = mu / rho
-    
-    # U, V = diffuse_velocity(U, V, nu, dt)
+    U, V = diffuse_velocity(U, V)
     
     U, V, D = advect(U, V, D, dt)
     
     P = pressure_poisson_solve(P)
             
     U, V = project_velocities(U, V, rho, dt)
-    
-    # if converged(1e-15):
-    #     on_pause(None, None, None)
-    #     CONVERGED = True
     
     T = T + dt
 
@@ -1392,8 +1381,8 @@ def main():
                         cx = (mouse_x - SCENE_X) // CELL_SIZE
                         cy = (mouse_y - SCENE_Y) // CELL_SIZE
 
-                        velx = dx * 10
-                        vely = dy * 10
+                        velx = dx * 20
+                        vely = dy * 20
                         
                         for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
                                     clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
