@@ -94,10 +94,11 @@ CONTROLS = [
         "Enabled" : True,
         "Visible" : True,
         "Type" : "Combobox",
-        "Value" : 0,
+        "Value" : 1,
         "Items" : [
             "Pressure",
             "Gas density",
+            "Divergence",
         ]
     },
     {
@@ -381,6 +382,7 @@ def on_change_fluid_presets(index):
 RUNNING = False
 CONVERGED = False
 SMOKE_MODE = 0
+VELOCITY_MUL = 10
 def on_start(control, mouse_x, mouse_y):
     get_control("Model preset")["Enabled"] = False
     get_control("State preset")["Enabled"] = False
@@ -609,17 +611,10 @@ def initialize_state(state_type):
 def on_change_state_presets(index):
     initialize_state(get_control("State preset")["Items"][index])
 
-COLOR_STOPS = {
-    0.00: (0,   0,   139),   # dark blue
-    0.25: (0,  255,   0),    # green
-    0.50: (255, 255, 0),     # yellow
-    0.75: (255, 165, 0),     # orange
-    1.00: (255,   0, 0),     # red
-}
-def get_pressure_color(val):
+def map_color(val, colormap):
     val = clamp(val, 0.0, 1.0)
 
-    keys = sorted(COLOR_STOPS.keys())
+    keys = sorted(colormap.keys())
 
     for i in range(len(keys) - 1):
         k1 = keys[i]
@@ -628,15 +623,34 @@ def get_pressure_color(val):
         if k1 <= val <= k2:
             t = (val - k1) / (k2 - k1)
 
-            c1 = COLOR_STOPS[k1]
-            c2 = COLOR_STOPS[k2]
+            c1 = colormap[k1]
+            c2 = colormap[k2]
 
             r = int(lerp(c1[0], c2[0], t))
             g = int(lerp(c1[1], c2[1], t))
             b = int(lerp(c1[2], c2[2], t))
 
             return (r, g, b)
+    return (0, 0, 0)
+    
 
+PRESSURE_COLOR_STOPS = {
+    0.00: (0,   0,   139),   # dark blue
+    0.25: (0,  255,   0),    # green
+    0.50: (255, 255, 0),     # yellow
+    0.75: (255, 165, 0),     # orange
+    1.00: (255,   0, 0),     # red
+}
+
+def get_pressure_color(val):
+    return map_color(val, PRESSURE_COLOR_STOPS)
+
+DIVERGENCE_COLOR_STOPS = {
+    0.00: (0,   0,   255),   # blue
+    1.00: (255,   0, 0),     # red
+}
+def get_divergence_color(val):
+    return map_color(val, DIVERGENCE_COLOR_STOPS)
 
 def draw_arrow(screen, start_pos, direction, color, length=50, arrow_head_size=10, arrow_shaft_size=3):
     direction = pygame.math.Vector2(direction)
@@ -679,12 +693,12 @@ def render_arrow_field(screen, xpos, ypos, arrow_color):
                     t = clamp(velocity_mag / velocity_max, 0, 1)
                     draw_arrow(screen, (xpos + x * CELL_SIZE, ypos + y * CELL_SIZE), velocity, arrow_color, arrow_max_len * t * CELL_SIZE, arrow_head, arrow_shaft)
 
-def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure_max, ticks):
+def render_scale(screen, font, xpos, ypos, width, height, mapping_func, val_min, val_max, ticks):
     vals = np.linspace(0.0, 1.0, height)
 
     img = np.zeros((height, width, 3), dtype=np.uint8)
     for i, v in enumerate(vals):
-        color = get_pressure_color(v)
+        color = mapping_func(v)
 
         img[i, :, :] = color
 
@@ -703,7 +717,7 @@ def render_scale(screen, font, xpos, ypos, width, height, pressure_min, pressure
                          (xpos + width, py),
                          (xpos + width + 6, py), 2)
 
-        pval = pressure_min + t * (pressure_max - pressure_min)
+        pval = val_min + t * (val_max - val_min)
         text = font.render(f"{pval:.2E}", True, (0, 0, 0))
         screen.blit(text, (xpos + width + 10, py - text.get_height()//2))
 
@@ -745,7 +759,7 @@ def render_pressure(screen, font, xpos, ypos):
                 pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
                     
     render_arrow_field(screen, xpos, ypos, (0, 0, 0))
-    render_scale(screen, font, xpos + FIELD_WIDTH * CELL_SIZE + 50, ypos, 30, FIELD_HEIGHT * CELL_SIZE, pressure_min, pressure_max, 7)
+    render_scale(screen, font, xpos + FIELD_WIDTH * CELL_SIZE + 50, ypos, 30, FIELD_HEIGHT * CELL_SIZE, get_pressure_color, pressure_min, pressure_max, 7)
 
 def render_smoke(screen, xpos, ypos):
     smooth = np.zeros((FIELD_WIDTH * CELL_SIZE,
@@ -772,12 +786,44 @@ def render_smoke(screen, xpos, ypos):
 
     render_arrow_field(screen, xpos, ypos, (220, 220, 220))
 
+def render_divergence(screen, font, xpos, ypos):
+    divergence = get_divergence_matrix()
+    divergence_min = +1e9
+    divergence_max = -1e9
+    for x in range(0, FIELD_WIDTH):
+        for y in range(0, FIELD_HEIGHT):
+            d = divergence[x, y]
+            divergence_min = min(divergence_min, d)
+            divergence_max = max(divergence_max, d)
+    
+    smooth_D = sim.zoom(divergence, zoom=CELL_SIZE, order=1)    
+    for px in range(smooth_D.shape[0]):
+        for py in range(smooth_D.shape[1]):
+            if divergence_max == divergence_min:
+                val = 0
+            else:
+                p = smooth_D[px, py]
+                val = (p - divergence_min) / (divergence_max - divergence_min)
+            
+            color = get_divergence_color(val)
+            screen.set_at((px + xpos, py + ypos), color)
+            
+    for x in range(0, FIELD_WIDTH):
+        for y in range(0, FIELD_HEIGHT):
+            if is_solid(x, y):
+                pixel_rect = pygame.Rect(xpos + x * CELL_SIZE, ypos + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                pygame.draw.rect(screen, (0, 0, 0), pixel_rect)
+                    
+    render_arrow_field(screen, xpos, ypos, (0, 0, 0))
+    render_scale(screen, font, xpos + FIELD_WIDTH * CELL_SIZE + 50, ypos, 30, FIELD_HEIGHT * CELL_SIZE, get_divergence_color, divergence_min, divergence_max, 7)
 
 def render_scene(screen, font, xpos, ypos):
     if RENDERING_METHOD == 0:
         render_pressure(screen, font, xpos, ypos)
     elif RENDERING_METHOD == 1:
         render_smoke(screen, xpos, ypos)
+    elif RENDERING_METHOD == 2:
+        render_divergence(screen, font, xpos, ypos)
                 
 def render_info(screen, font, xpos, ypos):
     text = font.render(f"Time elapsed: {T:.2f} s", True, (0, 0, 0))
@@ -791,17 +837,20 @@ def render_info(screen, font, xpos, ypos):
     elif SMOKE_MODE == 2:
         text = font.render("Smoke: blue", True, (0, 0, 0))
         screen.blit(text, (xpos, ypos + 30))
+        
+    text = font.render(f"Velocity: {VELOCITY_MUL:.2f}m/s", True, (0, 0, 0))
+    screen.blit(text, (xpos, ypos + 60))
     
     if CONVERGED:
         text = font.render("Converged!", True, (0, 0, 0))
-        screen.blit(text, (xpos, ypos + 60))
+        screen.blit(text, (xpos, ypos + 90))
 
 DEFAULT_METHOD = 0
 def on_change_method_presets(index):
     global DEFAULT_METHOD
     DEFAULT_METHOD = index
     
-RENDERING_METHOD = 0
+RENDERING_METHOD = 1
 def on_change_rendering_method_presets(index):
     global RENDERING_METHOD
     RENDERING_METHOD = index
@@ -1005,22 +1054,17 @@ def sample_bilinear(eV, eCX, eCY, worldPos):
     width = (eCX - 1) * CELL_SIZE
     height = (eCY - 1) * CELL_SIZE
 
-    # Convert world coords -> grid coords (float)
-    # This maps x = 0 at leftmost sample and x = eCX-1 at rightmost.
     px = (worldPos[0] + width  / 2.0) / CELL_SIZE
     py = (worldPos[1] + height / 2.0) / CELL_SIZE
 
-    # Find integer cell indices
     left   = int(m.floor(clamp(px, 0.0, eCX - 2.0)))
     bottom = int(m.floor(clamp(py, 0.0, eCY - 2.0)))
     right  = left + 1
     top    = bottom + 1
 
-    # Fractional part inside the cell
     xFrac = clamp(px - left,   0.0, 1.0)
     yFrac = clamp(py - bottom, 0.0, 1.0)
 
-    # Do bilinear interpolation
     vT = lerp(eV[left,  top],    eV[right, top],    xFrac)
     vB = lerp(eV[left,  bottom], eV[right, bottom], xFrac)
 
@@ -1110,7 +1154,7 @@ def advect(U, V, D, dt):
                     wy - vel[1] * dt)
             
             for c in range(3):
-                newD[x, y, c] = sample_bilinear(D[..., c], FIELD_WIDTH, FIELD_HEIGHT, back) * 0.99
+                newD[x, y, c] = sample_bilinear(D[..., c], FIELD_WIDTH, FIELD_HEIGHT, back) * 0.995
 
     return newU, newV, newD
 
@@ -1171,6 +1215,13 @@ def build_pressure_matrix(width, height):
 
     return A.tocsr()
 
+def get_divergence_matrix():
+    divergence = np.zeros([FIELD_WIDTH, FIELD_HEIGHT])
+    for x in range(FIELD_WIDTH - 1):
+        for y in range(FIELD_HEIGHT - 1):
+            divergence[x, y] = calculate_velocity_divergence_at_cell(x, y)
+    return divergence
+
 def pressure_poisson_solve(P):
     """
     Description:
@@ -1195,12 +1246,7 @@ def pressure_poisson_solve(P):
         6. Reshape the solver output back into 2D pressure form.
         7. Return the updated pressure field.
     """
-    W, H = P.shape
-
-    divergence = np.zeros([W, H])
-    for x in range(W - 1):
-        for y in range(H - 1):
-            divergence[x, y] = calculate_velocity_divergence_at_cell(x, y)
+    divergence = get_divergence_matrix()
     b = divergence.flatten()
     
     old_p = P.flatten()
@@ -1328,7 +1374,7 @@ def init(field_width, field_height, cellsize):
     on_change_state_presets(get_control("State preset")["Value"])
 
 def main():
-    global U, V, D, SMOKE_MODE
+    global U, V, D, SMOKE_MODE, VELOCITY_MUL
     
     WIDTH, HEIGHT = 800, 600
     PANEL_WIDTH = 200
@@ -1384,10 +1430,13 @@ def main():
                             dragging_control = control
                     continue
                 if event.type == pygame.MOUSEWHEEL:
-                    if event.y > 0.0:
-                        SMOKE_MODE = 0 if SMOKE_MODE == 2 else SMOKE_MODE + 1
-                    else:
-                        SMOKE_MODE = 2 if SMOKE_MODE == 0 else SMOKE_MODE - 1
+                    if DRAWING_METHOD == 0 or DRAWING_METHOD == 2:
+                        if event.y > 0.0:
+                            SMOKE_MODE = 0 if SMOKE_MODE == 2 else SMOKE_MODE + 1
+                        else:
+                            SMOKE_MODE = 2 if SMOKE_MODE == 0 else SMOKE_MODE - 1
+                    elif DRAWING_METHOD == 1:
+                        VELOCITY_MUL += event.y
 
                 if event.type == pygame.MOUSEMOTION:
                     mouse_x, mouse_y = event.pos
@@ -1406,11 +1455,11 @@ def main():
                                 for y in range(clamp(cy - SMOKE_RADIUS, 0, FIELD_HEIGHT),
                                             clamp(cy + SMOKE_RADIUS, 0, FIELD_HEIGHT)):
                                     if (x - cx) ** 2 + (cy - y) ** 2 <= SMOKE_RADIUS ** 2:
-                                        D[x, y, SMOKE_MODE] = 1.0
+                                        D[x, y, SMOKE_MODE] = clamp(D[x, y, SMOKE_MODE] + 0.25, 0, 1)
                         
                         if DRAWING_METHOD == 1 or DRAWING_METHOD == 2:
-                            velx = dx * 20
-                            vely = dy * 20
+                            velx = dx * VELOCITY_MUL
+                            vely = dy * VELOCITY_MUL
                             for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
                                         clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
                                 for y in range(clamp(cy - DRAWING_RADIUS, 0, FIELD_HEIGHT),
