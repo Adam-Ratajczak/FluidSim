@@ -101,6 +101,18 @@ CONTROLS = [
         ]
     },
     {
+        "Title" : "Drawing Method",
+        "Enabled" : True,
+        "Visible" : True,
+        "Type" : "Combobox",
+        "Value" : 0,
+        "Items" : [
+            "Gas",
+            "Velocity",
+            "Gas and velocity",
+        ]
+    },
+    {
         
         "Title" : "Start",
         "Enabled" : True,
@@ -794,6 +806,11 @@ def on_change_rendering_method_presets(index):
     global RENDERING_METHOD
     RENDERING_METHOD = index
 
+DRAWING_METHOD = 0
+def on_change_drawing_method_presets(index):
+    global DRAWING_METHOD
+    DRAWING_METHOD = index
+
 def calculate_velocity_divergence_at_cell(x, y):
     """
     Description:
@@ -1294,6 +1311,8 @@ def init(field_width, field_height, cellsize):
     get_control("Time step")["OnChange"] = on_change_params
     get_control("Rendering Method")["OnClick"] = on_click_combobox
     get_control("Rendering Method")["OnChange"] = on_change_rendering_method_presets
+    get_control("Drawing Method")["OnClick"] = on_click_combobox
+    get_control("Drawing Method")["OnChange"] = on_change_drawing_method_presets
     get_control("Start")["OnClick"] = on_start
     get_control("Pause")["OnClick"] = on_pause
     get_control("Reset")["OnClick"] = on_reset
@@ -1380,27 +1399,28 @@ def main():
 
                         cx = (mouse_x - SCENE_X) // CELL_SIZE
                         cy = (mouse_y - SCENE_Y) // CELL_SIZE
-
-                        velx = dx * 20
-                        vely = dy * 20
                         
-                        for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
-                                    clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
-                            for y in range(clamp(cy - DRAWING_RADIUS, 0, FIELD_HEIGHT),
-                                        clamp(cy + DRAWING_RADIUS, 0, FIELD_HEIGHT)):
-                                if (x - cx) ** 2 + (cy - y) ** 2 <= DRAWING_RADIUS ** 2:
-                                    if 0 <= x < FIELD_WIDTH + 1 and 0 <= y < FIELD_HEIGHT:
-                                        U[x, y] += velx
-
-                                    if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
-                                        V[x, y] += vely
+                        if DRAWING_METHOD == 0 or DRAWING_METHOD == 2:
+                            for x in range(clamp(cx - SMOKE_RADIUS, 0, FIELD_WIDTH),
+                                        clamp(cx + SMOKE_RADIUS, 0, FIELD_WIDTH)):
+                                for y in range(clamp(cy - SMOKE_RADIUS, 0, FIELD_HEIGHT),
+                                            clamp(cy + SMOKE_RADIUS, 0, FIELD_HEIGHT)):
+                                    if (x - cx) ** 2 + (cy - y) ** 2 <= SMOKE_RADIUS ** 2:
+                                        D[x, y, SMOKE_MODE] = 1.0
                         
-                        for x in range(clamp(cx - SMOKE_RADIUS, 0, FIELD_WIDTH),
-                                    clamp(cx + SMOKE_RADIUS, 0, FIELD_WIDTH)):
-                            for y in range(clamp(cy - SMOKE_RADIUS, 0, FIELD_HEIGHT),
-                                        clamp(cy + SMOKE_RADIUS, 0, FIELD_HEIGHT)):
-                                if (x - cx) ** 2 + (cy - y) ** 2 <= SMOKE_RADIUS ** 2:
-                                    D[x, y, SMOKE_MODE] = 1.0
+                        if DRAWING_METHOD == 1 or DRAWING_METHOD == 2:
+                            velx = dx * 20
+                            vely = dy * 20
+                            for x in range(clamp(cx - DRAWING_RADIUS, 0, FIELD_WIDTH),
+                                        clamp(cx + DRAWING_RADIUS, 0, FIELD_WIDTH)):
+                                for y in range(clamp(cy - DRAWING_RADIUS, 0, FIELD_HEIGHT),
+                                            clamp(cy + DRAWING_RADIUS, 0, FIELD_HEIGHT)):
+                                    if (x - cx) ** 2 + (cy - y) ** 2 <= DRAWING_RADIUS ** 2:
+                                        if 0 <= x < FIELD_WIDTH + 1 and 0 <= y < FIELD_HEIGHT:
+                                            U[x, y] += velx
+
+                                        if 0 <= x < FIELD_WIDTH and 0 <= y < FIELD_HEIGHT + 1:
+                                            V[x, y] += vely
 
                         continue
 
