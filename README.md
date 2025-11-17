@@ -500,7 +500,10 @@ But where does **k** coefficient come from, i.e. how do we know how quickly does
 Let's start by writing and rearranging continuous form of the Newton's second law of fluids:
 
 $$
-\rho \frac{\partial {u}}{\partial {t}}= -\nabla p + f \\[6pt]
+\rho \frac{\partial {u}}{\partial {t}}= -\nabla p + f
+$$
+
+$$
 \frac{\partial {u}}{\partial {t}} = - \frac{1}{\rho} \nabla p
 $$
 
