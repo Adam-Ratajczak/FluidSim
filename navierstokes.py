@@ -861,15 +861,6 @@ def on_change_drawing_method_presets(index):
     DRAWING_METHOD = index
 
 def calculate_velocity_divergence_at_cell(x, y):
-    """
-    Description:
-        This function is used to get divergence value for given cell.\n
-    Arguments:
-        x, y - coordinates
-    Returns:
-        Divergence value based on current velocity matrices
-    """
-    
     uR = U[x+1, y]
     uL = U[x,   y]
     vT = V[x,   y+1]
@@ -879,42 +870,15 @@ def calculate_velocity_divergence_at_cell(x, y):
     return div
 
 def get_pressure(x, y):
-    """
-    Description:
-        This function is used to safely get pressure value.\n
-    Arguments:
-        x, y - coordinates
-    Returns:
-        0 if coordinates out of bounds, pressure value otherwise
-    """
-    
     oob = (x < 0 or x >= FIELD_WIDTH or y < 0 or y >= FIELD_HEIGHT)
     return 0 if oob else P[x, y]
 
 def is_solid(x, y):
-    """
-    Description:
-        This function is used to safely get solid value.\n
-    Arguments:
-        x, y - coordinates
-    Returns:
-        True if tile is solid or for coordinates out of bounds, False otherwise
-    """
-    
     oob = (x < 0 or x >= FIELD_WIDTH or y < 0 or y >= FIELD_HEIGHT)
     return True if oob else SOLID[x, y]
 
 
 def apply_boundary(F):
-    """
-    Description:
-        This function is used to apply boundary conditions.\n
-    Arguments:
-        F - field
-    Returns:
-        Modified field matrix with applied boundary conditions 
-    """
-    
     W, H = F.shape
     for x in range(W):
         for y in range(H):
@@ -923,31 +887,6 @@ def apply_boundary(F):
     return F
     
 def build_diffusion_matrix(width, height, a):
-    """
-    Description:
-        Constructs a sparse matrix representing the implicit diffusion operator
-        on a 2D grid. Each grid cell contributes to a finite-difference stencil,
-        and solid cells are treated as fixed-value (Dirichlet) boundaries.
-    Parameters:
-        width (int):
-            Number of cells in the x direction.
-        height (int):
-            Number of cells in the y direction.
-        a (float):
-            Diffusion coefficient term (typically dt * nu / h^2).
-    Returns:
-        scipy.sparse.csr_matrix:
-            Sparse matrix encoding the diffusion operator.
-    Algorithm:
-        1. Convert each (x, y) cell to a 1D index.
-        2. For each cell:
-             - If the cell is solid, set a 1 on the diagonal (fixed value).
-             - If fluid:
-                 a. Add the center coefficient.
-                 b. Add coefficients for valid fluid neighbors.
-        3. Convert the matrix to CSR format for efficient solving.
-        4. Return the resulting sparse matrix.
-    """
     N = width * height
     A = lil_matrix((N, N))
 
@@ -972,38 +911,9 @@ def build_diffusion_matrix(width, height, a):
     return A.tocsr()
     
 def diffuse_velocity(U, V):
-    """
-    Description:
-        Applies implicit diffusion (viscosity) to the velocity field.
-        Each velocity component (U and V) is solved independently using
-        a preconstructed diffusion matrix. This step smooths the velocity
-        and spreads momentum according to the viscosity.
-    Parameters:
-        U (2D array):
-            Horizontal velocity component stored on a staggered grid.
-        V (2D array):
-            Vertical velocity component stored on a staggered grid.
-        nu (float):
-            Kinematic viscosity of the fluid.
-        dt (float):
-            Simulation time step.
-    Returns:
-        (U_new, V_new) : tuple of 2D arrays
-            The diffused velocity components.
-    Algorithm:
-        1. Compute diffusion factor a = dt * nu / h^2.
-        2. For each velocity component (U and V):
-             a. Flatten the component into a 1D vector.
-             b. Form the right-hand side of the linear system.
-             c. Use the prebuilt diffusion matrix and solver to obtain
-                the diffused velocity.
-             d. Reshape the solution back to the component’s grid shape.
-        3. Return the diffused U and V fields.
-    """
-
     def solve_component(F, solver):
         b = F.flatten()
-        x = solver.solve(b, maxiter=1)
+        x = solver.solve(b, tol=1e-8)
         return x.reshape(F.shape)
 
     U = solve_component(U, M_DiffussionU)
@@ -1012,45 +922,12 @@ def diffuse_velocity(U, V):
     return U, V
 
 def clamp(x, lo, hi):
-    """
-    Description:
-        This function is used to clamp x argument in a range [a, b].\n
-    Arguments:
-        x - argument
-        a, b - bounds
-    Returns:
-        Clamped x value
-    """
     return lo if x < lo else hi if x > hi else x
 
 def lerp(a, b, t):
-    """
-    Description:
-        This function is used for linear interpolation between two values a and b.\n
-    Arguments:
-        a, b - bounds
-        t - fraction
-    Returns:
-        Interpolated value
-    """
     return a + (b - a) * t
 
 def sample_bilinear(eV, eCX, eCY, worldPos):
-    """
-    Description:
-        This function is used for sampling eV matrix at worldPos.\n
-    Arguments:
-        eV - matrix to sample
-        eCX, eCY - matrix dimensions
-        worldPos - coordinates
-    Returns:
-        Sampled value at given coordinates.
-    Algorithm:
-        1. Detect cell to sample
-        2. Detect edges of a cell
-        3. Interpolate by X and Y axis
-    """
-    
     width = (eCX - 1) * CELL_SIZE
     height = (eCY - 1) * CELL_SIZE
 
@@ -1071,35 +948,12 @@ def sample_bilinear(eV, eCX, eCY, worldPos):
     return lerp(vB, vT, yFrac)
 
 def get_vel_at_world_pos(worldPos):
-    """
-    Description:
-        This function is used for sampling velocities at worldPos.\n
-    Arguments:
-        worldPos - coordinates
-    Returns:
-        Sampled velocity vector at given coordinates.
-    """
-    
     velX = sample_bilinear(U, FIELD_WIDTH + 1, FIELD_HEIGHT, worldPos)
     velY = sample_bilinear(V, FIELD_WIDTH, FIELD_HEIGHT + 1, worldPos)
     
     return (velX, velY)
 
 def advect(U, V, D, dt):
-    """
-    Description:
-        This function is used for moving velocities forward in the field using semi-Lagrangian method.\n
-    Arguments:
-        U, V - velocity matrices
-        dt - time step
-    Returns:
-        advanced U and V matrices.
-    Algorithm:
-        1. Get sampled velocity
-        2. Calculate 
-        3. Interpolate by X and Y axis
-    """
-    
     newU = U.copy()
     newV = V.copy()
     newD = D.copy()
@@ -1159,33 +1013,6 @@ def advect(U, V, D, dt):
     return newU, newV, newD
 
 def build_pressure_matrix(width, height):
-    """
-    Description:
-        Constructs the sparse linear system matrix for the Poisson equation
-        used in pressure projection. Each fluid cell contributes to a
-        finite-difference Laplacian stencil, while solid cells are treated
-        as fixed-pressure (Dirichlet) boundaries.
-    Parameters:
-        width (int):
-            Number of pressure cells in the x direction.
-        height (int):
-            Number of pressure cells in the y direction.
-    Returns:
-        scipy.sparse.csr_matrix:
-            Sparse matrix encoding the Poisson operator for pressure projection.
-    Algorithm:
-        1. Convert each (x, y) cell coordinate into a 1D index.
-        2. For each cell:
-             a. If the cell is solid:
-                    - Set the diagonal element to 1 (fixed value constraint).
-                    - Continue to the next cell.
-             b. Count the number of valid fluid neighbors.
-             c. Set the diagonal coefficient equal to the neighbor count.
-             d. For each fluid neighbor:
-                    - Set the matrix entry to -1, forming the Laplacian stencil.
-        3. Convert the matrix to CSR format.
-        4. Return the resulting sparse matrix.
-    """
     N = width * height
     A = lil_matrix((N, N))
 
@@ -1223,46 +1050,14 @@ def get_divergence_matrix():
     return divergence
 
 def pressure_poisson_solve(P):
-    """
-    Description:
-        Solves the Poisson equation for pressure using the prebuilt
-        pressure matrix. This step enforces incompressibility by computing
-        pressure values that remove divergence from the velocity field.
-    Parameters:
-        P (2D array):
-            Current pressure field, used as an initial guess for the solver.
-    Returns:
-        2D array:
-            Updated pressure field after one iteration of the solver.
-    Algorithm:
-        1. Allocate a divergence field matching the pressure grid.
-        2. For each interior cell:
-             a. Compute velocity divergence at that cell.
-             b. Store it in the divergence array.
-        3. Flatten the divergence array to form the right-hand side vector.
-        4. Flatten the current pressure field as an initial guess.
-        5. Perform one iteration of the linear solver using the prebuilt
-           pressure matrix to approximate the Poisson solution.
-        6. Reshape the solver output back into 2D pressure form.
-        7. Return the updated pressure field.
-    """
     divergence = get_divergence_matrix()
     b = divergence.flatten()
     
-    old_p = P.flatten()
-    new_p = M_Pressure.solve(b, x0=old_p, maxiter=1)
+    new_p = M_Pressure.solve(b, tol=1e-8)
 
     return new_p.reshape(P.shape)
         
 def converged(eps):
-    """
-    Description:
-        This function checkes whether simulation converged.\n
-    Arguments:
-        eps - epsilon
-    Returns:
-        True if converged, false otherwise
-    """
     for x in range(FIELD_WIDTH):
         for y in range(FIELD_HEIGHT):
             divergence = calculate_velocity_divergence_at_cell(x, y)
@@ -1271,21 +1066,6 @@ def converged(eps):
     return True
 
 def project_velocities(U, V, rho, dt):
-    """
-    Description:
-        This function is used to update U and V matrices based on new pressure matrix.\n
-    Arguments:
-        U, V - velocity matrices
-        rho - density
-        dt - time step
-    Returns:
-        U and V velocities
-    Algorithm:
-        1. Calculate pressure difference multiplied by density coefficient along the cell
-        2. Subtract from current velocity value at given edge
-        3. Repeat for every U and V edge
-    """
-    
     k = dt / (rho * CELL_SIZE)
     for x in range(0, FIELD_WIDTH + 1):
         for y in range(0, FIELD_HEIGHT):
@@ -1310,19 +1090,6 @@ def project_velocities(U, V, rho, dt):
     return U, V
         
 def step_implicit_diffusion_method():
-    """
-    Description:
-        This is main step function of Multigrid Solver for the Diffusion Equation.\n
-    Algorithm:
-        1. Fetch viscosity, dynamic density and time step, calculate kinematic viscocity
-        2. Apply kinematic viscosity
-        3. Advance velocity field
-        4. Solve pressure
-        5. Correct velocities by new pressure values
-        6. Apply boundary conditions
-        7. Advance time by a time step
-    """
-    
     global U, V, D, P, T, CONVERGED
     
     rho = get_control("Density")["Value"]
