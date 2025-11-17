@@ -53,34 +53,26 @@ $$
 - $\nu$, Kinematic viscosity, a ratio of dynamic viscosity and gradient:
 
 $$
-\begin{aligned}
-    \nu &= \frac{\mu}{\rho}
-\end{aligned}
+    \nu = \frac{\mu}{\rho}
 $$
 
 - $\nabla$, Gradient, first derivative of the vector field. For 2D, it can be expanded as follows:
 
 $$
-\begin{aligned}
-    \nabla &= (\frac{\partial}{\partial {x}}, \frac{\partial}{\partial {y}} )
-\end{aligned}
+    \nabla = (\frac{\partial}{\partial {x}}, \frac{\partial}{\partial {y}} )
 $$
 
 - $\nabla^2 u$, Laplacian, second derivative of the vector field. For 2D, it can be expanded as follows:
 
 $$
-\begin{aligned}
-    \nabla^2 u &= (\frac{\partial^2 u}{\partial {x}^2}, \frac{\partial^2 u}{\partial {y}^2} )
-\end{aligned}
+    \nabla^2 u = (\frac{\partial^2 u}{\partial {x}^2}, \frac{\partial^2 u}{\partial {y}^2} )
 $$
 
 - $\nabla \cdot {u}$, Divergence, It is basically a dot product of vector field and its gradient. Expanded form:
 $$
-\begin{aligned}
     \nabla \cdot {u} 
-    &= (\frac{\partial}{\partial {x}}, \frac{\partial}{\partial {y}} ) \cdot ({u_x}, {u_y} )
-    &= \frac{\partial {u_x}}{\partial {x}} + \frac{\partial {u_y}}{\partial {y}}
-\end{aligned}
+    = (\frac{\partial}{\partial {x}}, \frac{\partial}{\partial {y}} ) \cdot ({u_x}, {u_y} )
+    = \frac{\partial {u_x}}{\partial {x}} + \frac{\partial {u_y}}{\partial {y}}
 $$
 
 Therefore, divergence means that amount of fluid entering the cell must be equal to the amount of fluid leaving the cell.
@@ -145,9 +137,7 @@ Viscous diffusion makes the velocity field more even. It irons out sharp gradien
 It is governed by this part of the equation:
 
 $$
-\begin{aligned}
     \nu \nabla^2 {u}
-\end{aligned}
 $$
 
 Why is there a laplacian?
@@ -211,27 +201,24 @@ Its purpose is to construct a sparse matrix representing the discrete diffusion 
 In continuous form, it solves:
 
 $$
-\begin{aligned}
-    {u}^{n + 1} - a \nabla^2 {u}^{n + 1} &= {u}^{n}
-\end{aligned}
+    {u}^{n + 1} - a \nabla^2 {u}^{n + 1} = {u}^{n}
 $$
 
 But computers cannot solve the continuous form, we need to discretize it into a 2D grid:
 
 $$
-\begin{aligned}
     \nabla^2 {u}[i,j] \approx {u}[i, j+1] + {u}[i, j-1] + {u}[i+1, j] + {u}[i-1, j] - 4{u}[i, j]
-\end{aligned}
 $$
 
 When we plug it to the actual equation, we derive:
 
 
 $$
-\begin{aligned}
-    {u}^{n + 1}[i,j] - {a} ( {u}^{n + 1}[i, j+1] + {u}^{n + 1}[i, j-1] + {u}^{n + 1}[i+1, j] + {u}^{n + 1}[i-1, j] - 4{u}[i, j] ) &= {u}^{n} \\[6pt]
-    (1 + 4{a} ){u}^{n}[i, j] - {a}{u}^{n + 1}[i, j+1] - {a}{u}^{n + 1}[i, j-1] - {a}{u}^{n + 1}[i+1, j] - {a}{u}^{n + 1}[i-1, j] &= {u}^{n}
-\end{aligned}
+    {u}^{n + 1}[i,j] - {a} ( {u}^{n + 1}[i, j+1] + {u}^{n + 1}[i, j-1] + {u}^{n + 1}[i+1, j] + {u}^{n + 1}[i-1, j] - 4{u}[i, j] ) = {u}^{n}
+$$
+
+$$
+    (1 + 4{a} ){u}^{n}[i, j] - {a}{u}^{n + 1}[i, j+1] - {a}{u}^{n + 1}[i, j-1] - {a}{u}^{n + 1}[i+1, j] - {a}{u}^{n + 1}[i-1, j] = {u}^{n}
 $$
 
 Which is exactly what our stencil solves:
@@ -248,7 +235,7 @@ Its purpose is to solve this part of the equation:
 
 $$
 \begin{aligned}
-    \frac{\partial {u}}{\partial t} + ({u} \cdot \nabla){u} &= 0
+    \frac{\partial {u}}{\partial t} + ({u} \cdot \nabla){u} = 0
 \end{aligned}
 $$
 
@@ -333,9 +320,7 @@ def advect(U, V, dt):
 Semi-Lagrangian advection follows the idea:
 
 $$
-\begin{aligned}
-    {u}^{n+1}(x) &= {u}^{n} ({x} - {u}^{n}(x) d {t})
-\end{aligned}
+    {u}^{n+1}(x) = {u}^{n} ({x} - {u}^{n}(x) d {t})
 $$
 
 i.e., “go backward in time along the flow, pick up the old value.”
@@ -352,9 +337,7 @@ The constraint of incompressible fluid simulation is that, divergence of every c
 It is represented by the pressure Poisson operator:
 
 $$
-\begin{aligned}
-    \nabla^2 p &= \frac {1} {d t} \nabla \cdot {u}
-\end{aligned}
+    \nabla^2 p = \frac {1} {d t} \nabla \cdot {u}
 $$
 
 ##### 3.2.3.2. Algorithm overview:
@@ -390,11 +373,9 @@ def pressure_poisson_solve(P):
 **calculate_velocity_divergence_at_cell** is the helper function getting divergence at a given cell. It realizes the equation: 
 
 $$
-\begin{aligned}
     \nabla \cdot {u} 
-    &= \frac{\partial {u_x}}{\partial {x}} + \frac{\partial {u_y}}{\partial {y}}
-    &= \frac{d {u_x} + d {u_y}}{h}
-\end{aligned}
+    = \frac{\partial {u_x}}{\partial {x}} + \frac{\partial {u_y}}{\partial {y}}
+    = \frac{d {u_x} + d {u_y}}{h}
 $$
 Where h is cell size. In our case, $h = d {x} = d {y}$
 
@@ -440,22 +421,16 @@ def build_pressure_matrix(width, height):
 Let's start with the Poisson operator for a pressure correction step:
 
 $$
-\begin{aligned}
-    \nabla^2 p &= \frac {1} {d t} \nabla \cdot {u}
-\end{aligned}
+    \nabla^2 p = \frac {1} {d t} \nabla \cdot {u}
 $$
 
 It is obtained by substituting the velocity update
 $$
-\begin{aligned}
     u^{n+1} = u^{*} - \frac{dt}{\rho}\nabla p
-\end{aligned}
 $$
 into the incompressibility condition
 $$
-\begin{aligned}
-    \nabla\cdot u^{n+1} = 0
-\end{aligned}
+    \nabla \cdot u^{n+1} = 0
 $$
 and taking the divergence.
 
@@ -466,9 +441,7 @@ Let A be the list of valid neighbors.
 Then the discrete form of our equation shall be:
 
 $$
-\begin{aligned}
     \nabla^2 p \approx a{p}[i,j] - \sum_{i,j}^{A} p[i,j]
-\end{aligned}
 $$
 
 Our matrix does exactly that:
@@ -483,9 +456,7 @@ Our matrix does exactly that:
 After the pressure grid is updated, velocities need to follow pressure change, therefore this step is written as pressure gradient.
 
 $$
-\begin{aligned}
 -\nabla p
-\end{aligned}
 $$
 
 ##### 3.2.4.2. Algorithm overview:
@@ -529,34 +500,26 @@ But where does **k** coefficient come from, i.e. how do we know how quickly does
 Let's start by writing and rearranging continuous form of the Newton's second law of fluids:
 
 $$
-\begin{aligned}
-\rho \frac{\partial {u}}{\partial {t}}&= -\nabla p + f \\[6pt]
-\frac{\partial {u}}{\partial {t}} &= - \frac{1}{\rho} \nabla p
-\end{aligned}
+\rho \frac{\partial {u}}{\partial {t}}= -\nabla p + f \\[6pt]
+\frac{\partial {u}}{\partial {t}} = - \frac{1}{\rho} \nabla p
 $$
 
 For discrete field, equation needs to be rewritten as follows:
 
 $$
-\begin{aligned}
-{u}^{n+1} &= {u}^{n} - \frac{d {t}}{\rho} \nabla p
-\end{aligned}
+{u}^{n+1} = {u}^{n} - \frac{d {t}}{\rho} \nabla p
 $$
 
 For U component: 
 
 $$
-\begin{aligned}
-{u}^{n+1}[i,j] &= {u}^{n}[i,j] - \frac{dt (p[i-1,j] - p[i,j])}{\rho dx} &= {u}^{n}[i,j] - k (p[i-1,j] - p[i,j])
-\end{aligned}
+{u}^{n+1}[i,j] = {u}^{n}[i,j] - \frac{dt (p[i-1,j] - p[i,j])}{\rho dx} = {u}^{n}[i,j] - k (p[i-1,j] - p[i,j])
 $$
 
 For V component: 
 
 $$
-\begin{aligned}
-{v}^{n+1}[i,j] &= {v}^{n}[i,j] - \frac{dt (p[i,j-1] - p[i,j])}{\rho dy} &= {v}^{n}[i,j] - h (p[i,j-1] - p[i,j])
-\end{aligned}
+{v}^{n+1}[i,j] = {v}^{n}[i,j] - \frac{dt (p[i,j-1] - p[i,j])}{\rho dy} = {v}^{n}[i,j] - k (p[i,j-1] - p[i,j])
 $$
 
 h = dx = dy, therefore $k = \frac{dt}{\rho h}$
