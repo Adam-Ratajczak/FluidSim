@@ -14,7 +14,9 @@ This is a brief summary covering the general idea behind eulerian fluid simulati
 $$
 \rho\left(\frac{\partial u}{\partial t} + (u\cdot\nabla)u\right)
 = -\nabla p + \nu\nabla^2 u + f
-\\
+$$
+
+$$
 \nabla\cdot u = 0
 $$
 
