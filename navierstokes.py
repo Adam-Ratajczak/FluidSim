@@ -302,24 +302,24 @@ def on_click_slider(control, mouse_x, _):
     if "OnChange" in control:
         control["OnChange"](control["Value"])
 
-M_DiffussionU = None
-M_DiffussionV = None
+M_DiffusionU = None
+M_DiffusionV = None
 M_Pressure = None
 def on_change_params(val):
     mu = get_control("Viscosity")["Value"] / 1000.0
     rho = get_control("Density")["Value"]
     dt = get_control("Time step")["Value"]
     
-    global M_DiffussionU, M_DiffussionV, M_Pressure
+    global M_DiffusionU, M_DiffusionV, M_Pressure
     nu = mu / rho
     h = CELL_SIZE
     a = dt * nu / (h*h)
 
     AU = build_diffusion_matrix(FIELD_WIDTH + 1, FIELD_HEIGHT, a)
-    M_DiffussionU = pyamg.ruge_stuben_solver(AU)
+    M_DiffusionU = pyamg.ruge_stuben_solver(AU)
 
     AV = build_diffusion_matrix(FIELD_WIDTH, FIELD_HEIGHT + 1, a)
-    M_DiffussionV = pyamg.ruge_stuben_solver(AV)
+    M_DiffusionV = pyamg.ruge_stuben_solver(AV)
     
     AP = build_pressure_matrix(FIELD_WIDTH, FIELD_HEIGHT)
     M_Pressure = pyamg.ruge_stuben_solver(AP)
@@ -916,8 +916,8 @@ def diffuse_velocity(U, V):
         x = solver.solve(b, tol=1e-8)
         return x.reshape(F.shape)
 
-    U = solve_component(U, M_DiffussionU)
-    V = solve_component(V, M_DiffussionV)
+    U = solve_component(U, M_DiffusionU)
+    V = solve_component(V, M_DiffusionV)
 
     return U, V
 

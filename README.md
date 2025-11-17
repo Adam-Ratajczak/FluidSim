@@ -1,6 +1,6 @@
-# Navier-Stokes equations solver for incompressible fluids using implicit diffussion method
+# Navier-Stokes equations solver for incompressible fluids using implicit diffusion method
 
-This is a brief summary covering the general idea behing eulerian fluid simulations.
+This is a brief summary covering the general idea behind eulerian fluid simulations.
 
 ## 1. Dependencies:
 - numpy (for working with large datasets)
@@ -48,7 +48,7 @@ $$
 
 - $\nabla \cdot {u} = 0$, Enforces constant density. States that the velocity field has zero divergence, meaning fluid volume stays the same.
 
-### 2.5. Term explaination:
+### 2.5. Term explanation:
 
 - ${u}$, Velocity field, how fast fluid particles are moving
 
@@ -70,15 +70,15 @@ $$
 \end{aligned}
 $$
 
-- $\nabla^2$, Laplacian, second derivative of the vector field. For 2D, it can be expanded as follows:
+- $\nabla^2 u$, Laplacian, second derivative of the vector field. For 2D, it can be expanded as follows:
 
 $$
 \begin{aligned}
-    \nabla^2 &= (\frac{\partial^2}{\partial^2 {x}}, \frac{\partial^2}{\partial^2 {y}} )
+    \nabla^2 u &= (\frac{\partial^2 u}{\partial {x}^2}, \frac{\partial^2 u}{\partial {y}^2} )
 \end{aligned}
 $$
 
-- $\nabla \cdot {u}$, Divergence, it's basically a dot product of vector field and its gradient. Expanded form:
+- $\nabla \cdot {u}$, Divergence, It is basically a dot product of vector field and its gradient. Expanded form:
 $$
 \begin{aligned}
     \nabla \cdot {u} 
@@ -87,12 +87,12 @@ $$
 \end{aligned}
 $$
 
-Therefore, divergence means that amount of fluid entering the cell must be equat to the amount of fluid leaving the cell.
+Therefore, divergence means that amount of fluid entering the cell must be equal to the amount of fluid leaving the cell.
 
 ## 3. About the algorithm:
 
 ### 3.1. Algorithm assumes that:
-- fluid is incompressible (the amount of fluid entering and leaving individual cell is same i.e divergence for each cell is equal to zero)
+- fluid is incompressible (the amount of fluid entering and leaving individual cell is same i.e. divergence for each cell is equal to zero)
 - density and viscosity in the entire system is constant
 - structure of the system is as follows:
     ```
@@ -119,7 +119,7 @@ Therefore, divergence means that amount of fluid entering the cell must be equat
     
     - P, uniform pressure of the cell
 
-    Worth noting is that, U and V represents inflow and outflow for each cell, that's why it's measured at its edges. 
+    Worth noting is that, U and V represents inflow and outflow for each cell, that's why It is measured at the cell faces. 
 
     Dimensions of U matrix are: Nx+1, Ny
 
@@ -133,7 +133,7 @@ Therefore, divergence means that amount of fluid entering the cell must be equat
 
 - Diffusion (local velocities needs to be averaged)
 
-- advection (velocities needs to propagate)
+- advection (velocities need to propagate)
 
 - pressure solve (divergence needs to be equal to zero at every cell in the system)
 
@@ -146,7 +146,7 @@ Therefore, divergence means that amount of fluid entering the cell must be equat
 ##### 3.2.1.1. Overview:
 
 Viscous diffusion makes the velocity field more even. It irons out sharp gradients so the flow becomes smoother.
-It's governed by this part of the equation:
+It is governed by this part of the equation:
 
 $$
 \begin{aligned}
@@ -169,13 +169,13 @@ def diffuse_velocity(U, V):
         x = solver.solve(b, tol=1e-8)
         return x.reshape(F.shape)
 
-    U = solve_component(U, M_DiffussionU)
-    V = solve_component(V, M_DiffussionV)
+    U = solve_component(U, M_diffusionU)
+    V = solve_component(V, M_diffusionV)
 
     return U, V
 ```
 
-**diffuse_velocity** function applies diffussion to U and V vector fields. Algorithm description:
+**diffuse_velocity** function applies diffusion to U and V vector fields. Algorithm description:
 1. Each term is flattened to solver appropriate format.
 2. Linear equation is solved using multigrid algorithm
 3. The result is reshaped to its original form and returned
@@ -216,11 +216,11 @@ In continuous form, it solves:
 
 $$
 \begin{aligned}
-    {u}^{n + 1} \nabla^2 {u}^{n + 1} &= {u}^{n}
+    {u}^{n + 1} - a \nabla^2 {u}^{n + 1} &= {u}^{n}
 \end{aligned}
 $$
 
-But computers cannot solve the contnuous form, we need to discretize it into a 2D grid:
+But computers cannot solve the continuous form, we need to discretize it into a 2D grid:
 
 $$
 \begin{aligned}
@@ -234,11 +234,11 @@ When we plug it to the actual equation, we derive:
 $$
 \begin{aligned}
     {u}^{n + 1}[i,j] - {a} ( {u}^{n + 1}[i, j+1] + {u}^{n + 1}[i, j-1] + {u}^{n + 1}[i+1, j] + {u}^{n + 1}[i-1, j] - 4{u}[i, j] ) &= {u}^{n} \\[6pt]
-    (1 + 4{a} ) - {a}{u}^{n + 1}[i, j+1] - {a}{u}^{n + 1}[i, j-1] - {a}{u}^{n + 1}[i+1, j] - {a}{u}^{n + 1}[i-1, j] &= {u}^{n}
+    (1 + 4{a} ){u}^{n}[i, j] - {a}{u}^{n + 1}[i, j+1] - {a}{u}^{n + 1}[i, j-1] - {a}{u}^{n + 1}[i+1, j] - {a}{u}^{n + 1}[i-1, j] &= {u}^{n}
 \end{aligned}
 $$
 
-Which is exacly what our stencil solves:
+Which is exactly what our stencil solves:
 - Center coefficient: $1 + 4{a}$
 - Four neighbors: $-{a}$
 
@@ -345,7 +345,7 @@ $$
 i.e., “go backward in time along the flow, pick up the old value.”
 
 In order to reliably fetch the desired value, we need to sample the field based on the discrete values we already have.
-Functions **get_vel_at_world_pos** and **sample_bilinear** does exacly that.
+Functions **get_vel_at_world_pos** and **sample_bilinear** does exactly that.
 
 
 #### 3.2.3. Pressure solve:
@@ -353,7 +353,7 @@ Functions **get_vel_at_world_pos** and **sample_bilinear** does exacly that.
 ##### 3.2.3.1. Overview:
 
 The constraint of incompressible fluid simulation is that, divergence of every cell needs to be equal to zero. This step is supposed to update the pressure in order to keep the "zero divergence principle".
-It's represented by the pressure Poisson operator:
+It is represented by the pressure Poisson operator:
 
 $$
 \begin{aligned}
@@ -407,7 +407,7 @@ In **pressure_poisson_solve** function:
 2. Linear equation is solved using multigrid algorithm
 3. The result is reshaped to its original form and returned
 
-Once again, we need to construct the matrix for solver, as in diffussion step:
+Once again, we need to construct the matrix for solver, as in diffusion step:
 
 ```py
 def build_pressure_matrix(width, height):
@@ -448,10 +448,25 @@ $$
     \nabla^2 p &= \frac {1} {d t} \nabla \cdot {u}
 \end{aligned}
 $$
-It's derived from $-\nabla p$ by applying $\nabla \cdot {u} = 0$ constraint.
+
+It is obtained by substituting the velocity update
+$$
+\begin{aligned}
+    u^{n+1} = u^{*} - \frac{dt}{\rho}\nabla p
+\end{aligned}
+$$
+into the incompressibility condition
+$$
+\begin{aligned}
+    \nabla\cdot u^{n+1} = 0
+\end{aligned}
+$$
+and taking the divergence.
 
 Let a be the number of valid neighbors. (Valid - not solid)
+
 Let A be the list of valid neighbors.
+
 Then the discrete form of our equation shall be:
 
 $$
@@ -460,7 +475,7 @@ $$
 \end{aligned}
 $$
 
-Our matrix does exacly that:
+Our matrix does exactly that:
 - Center coefficient: number of neighbors
 - Valid neighbors: -1
 - Solid cells: 1
@@ -505,12 +520,12 @@ def project_velocities(U, V, rho, dt):
     return U, V
 ```
 
-Algorithm is rather straighforward.
+Algorithm is rather straightforward.
 Velocities need to be updated by the current acceleration.
 Acceleration in terms of fluid dynamics is pressure difference between two cells.
 
 In **project_velocities** function:
-1. Fetch pressure values for neighbouring cells
+1. Fetch pressure values for neighboring cells
 2. Calculate the acceleration and subtract from current velocities
 
 But where does **k** coefficient come from, i.e. how do we know how quickly does the fluid accelerate between two cells?
@@ -550,7 +565,7 @@ $$
 
 h = dx = dy, therefore $k = \frac{dt}{\rho h}$
 
-## 4. Lincense:
+## 4. License:
 
 This software is published under BeerWare license:
 ```
