@@ -425,13 +425,17 @@ $$
 $$
 
 It is obtained by substituting the velocity update
+
 $$
     u^{n+1} = u^{*} - \frac{dt}{\rho}\nabla p
 $$
+
 into the incompressibility condition
+
 $$
     \nabla \cdot u^{n+1} = 0
 $$
+
 and taking the divergence.
 
 Let a be the number of valid neighbors. (Valid - not solid)
@@ -447,7 +451,6 @@ $$
 Our matrix does exactly that:
 - Center coefficient: number of neighbors
 - Valid neighbors: -1
-- Solid cells: 1
 
 #### 3.2.4. Velocities projection:
 
