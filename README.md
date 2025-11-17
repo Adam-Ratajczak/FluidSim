@@ -12,16 +12,10 @@ This is a brief summary covering the general idea behind eulerian fluid simulati
 ### 2.1. General form:
 
 $$
-\begin{aligned}
-\rho ( 
-    \frac{\partial {u}}{\partial {t}} 
-    + ({u} \cdot \nabla){u}
-)
-&= - \nabla {p} 
-   + \nu \nabla^2 {u}
-   + {f}, \\[6pt]
-\nabla \cdot {u} &= 0.
-\end{aligned}
+\rho\left(\frac{\partial u}{\partial t} + (u\cdot\nabla)u\right)
+= -\nabla p + \nu\nabla^2 u + f
+\\
+\nabla\cdot u = 0
 $$
 
 ### 2.2. Left-hand side:
